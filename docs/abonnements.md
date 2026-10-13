@@ -71,8 +71,8 @@ gehostete Apps** (dynamische Registrierung ohne Partner-Client-ID). Für
 **kostenpflichtige oder gehostete** Apps ist OpenAIs Interessensformular
 vorgesehen. Daraus folgt: Wird Cue als kostenloses Open-Source-Projekt
 verteilt, ist der Weg offiziell vorgesehen; bei kommerzieller Verteilung muss
-vorher eine Freigabe von OpenAI eingeholt werden. Die Lizenzentscheidung für
-Cue ist noch offen (siehe [einschraenkungen.md](einschraenkungen.md)).
+vorher eine Freigabe von OpenAI eingeholt werden. Cue steht unter der
+MIT-Lizenz und wird als öffentliches Open-Source-Projekt entwickelt.
 
 Ablauf in Cue: „Continue with ChatGPT“ → Browser öffnet chatgpt.com → Nutzer
 meldet sich dort an und genehmigt die Plan-Nutzung → Redirect auf

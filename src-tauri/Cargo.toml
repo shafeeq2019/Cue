@@ -1,6 +1,7 @@
 [package]
 name = "cue"
 version = "0.1.0"
+license = "MIT"
 description = "Cue – a fast, keyboard-first AI assistant for many providers"
 edition = "2024"
 

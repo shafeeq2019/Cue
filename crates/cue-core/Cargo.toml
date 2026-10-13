@@ -2,6 +2,7 @@
 name = "cue-core"
 description = "Provider, auth and settings core for the Cue desktop assistant"
 version = "0.1.0"
+license = "MIT"
 edition = "2024"
 
 [dependencies]

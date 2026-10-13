@@ -13,9 +13,9 @@ Stand: 13.10.2026, Version 0.1.0.
    Details: [abonnements.md](abonnements.md#claude-code-brücke-bedingungen).
 2. **ChatGPT-Plan-Nutzung nur für Open-Source/lokal ohne Freigabe.** Wird Cue
    kostenpflichtig oder gehostet angeboten, muss OpenAI über das
-   Interessensformular zustimmen. **Die Lizenz von Cue ist noch nicht
-   festgelegt** – das ist eine Entscheidung des Projektinhabers und
-   beeinflusst diese Berechtigung. Außerdem ist das Feature bei OpenAI als
+   Interessensformular zustimmen. Cue ist MIT-lizenziert und öffentlich;
+   eine spätere kommerzielle oder gehostete Variante bräuchte diese
+   Freigabe. Außerdem ist das Feature bei OpenAI als
    *Preview* gekennzeichnet und kann sich ändern.
 3. **Claude Pro/Max lässt sich nicht direkt (ohne Claude Code) nutzen** –
    das ist eine Vorgabe von Anthropic, keine technische Lücke.

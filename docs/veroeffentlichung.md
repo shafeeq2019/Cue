@@ -25,7 +25,14 @@ npm run tauri build -- --target universal-apple-darwin
 Windows lädt bei Bedarf die WebView2-Runtime nach (`downloadBootstrapper`);
 auf Windows 10/11 ist sie in der Regel bereits vorhanden.
 
-## Über GitHub Actions
+## Test-Installer bei jedem Push
+
+`.github/workflows/build.yml` baut bei jedem Push auf einen beliebigen Branch
+die Windows-Pakete (`.exe` und `.msi`) und ein Universal-`.dmg` für macOS und
+hängt sie als Artifacts `cue-windows` und `cue-macos` an den Lauf (14 Tage
+aufbewahrt). Für öffentliche Repositories ist das kostenlos.
+
+## Releases über GitHub Actions
 
 `.github/workflows/release.yml` baut beim Push eines Tags `v*` die Pakete für
 macOS (universal) und Windows und legt einen **Entwurf** eines GitHub-Releases

@@ -41,7 +41,7 @@
     "category": "Productivity",
     "shortDescription": "Fast, keyboard-first AI assistant for many providers",
     "longDescription": "Cue opens with a global shortcut and gives you one minimal interface for Anthropic Claude, OpenAI, Google Gemini and OpenAI-compatible servers.",
-    "copyright": "© Cue contributors",
+    "copyright": "© 2026 Cue contributors, MIT License",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

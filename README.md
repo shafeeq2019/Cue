@@ -90,6 +90,13 @@ Details, Abdeckung und manuelle Checkliste: [docs/testen.md](docs/testen.md)
 npm run tauri build      # .dmg/.app (macOS), .msi/.exe (Windows)
 ```
 
+**Ohne eigene Entwicklungsumgebung:** Bei jedem Push baut GitHub Actions
+Test-Installer. Im Repository unter **Actions → „Build installers“** den
+neuesten Lauf öffnen und unten bei *Artifacts* `cue-windows`
+(`…-setup.exe` empfohlen, alternativ `.msi`) oder `cue-macos` (`.dmg`)
+herunterladen. Die Dateien sind unsigniert: Windows → „Weitere Informationen“
+→ „Trotzdem ausführen“; macOS → Rechtsklick → „Öffnen“.
+
 Release-Workflow, Signierung, Updates: [docs/veroeffentlichung.md](docs/veroeffentlichung.md)
 
 ## Tastenkürzel
@@ -128,6 +135,10 @@ Release-Workflow, Signierung, Updates: [docs/veroeffentlichung.md](docs/veroeffe
 Architektur und Begründung des Tech-Stacks:
 [docs/02-architektur.md](docs/02-architektur.md) ·
 Offene Punkte: [docs/einschraenkungen.md](docs/einschraenkungen.md)
+
+## Lizenz
+
+[MIT](LICENSE)
 
 ---
 
