@@ -76,8 +76,10 @@ impl AppState {
         }
     }
 
+    /// Saves while holding the settings lock so concurrent commands never
+    /// interleave writes to the same temporary file.
     pub fn save_settings(&self) -> Result<(), cue_core::CueError> {
-        let s = self.settings.lock().expect("settings lock").clone();
+        let s = self.settings.lock().expect("settings lock");
         s.save(&self.settings_path)
     }
 
