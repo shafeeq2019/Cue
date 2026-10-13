@@ -1,0 +1,29 @@
+[package]
+name = "cue"
+version = "0.1.0"
+description = "Cue – a fast, keyboard-first AI assistant for many providers"
+license = "MIT"
+edition = "2024"
+
+[lib]
+name = "cue_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.2", features = [] }
+
+[dependencies]
+cue-core = { path = "../crates/cue-core", features = ["keyring"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tauri = { version = "2.12.3", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-autostart = "2.7.0"
+tauri-plugin-clipboard-manager = "2.4.2"
+tauri-plugin-global-shortcut = "2.4.1"
+tauri-plugin-opener = "2.7.1"
+tauri-plugin-single-instance = "2.5.3"
+tokio = { version = "1.53.2", features = ["rt", "sync", "time", "macros"] }
+tokio-util = "0.7.20"
+tracing = "0.1.44"
+url = "2.5.8"
+uuid = { version = "1.28.0", features = ["v4"] }
