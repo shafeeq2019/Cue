@@ -1,7 +1,6 @@
 [package]
 name = "cue-core"
 description = "Provider, auth and settings core for the Cue desktop assistant"
-license = "MIT"
 version = "0.1.0"
 edition = "2024"
 

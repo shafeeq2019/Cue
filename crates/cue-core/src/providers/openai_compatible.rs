@@ -51,12 +51,18 @@ impl Provider for OpenAiCompatibleProvider {
             .auth(self.http.get(join_url(&self.base, "models")))
             .send()
             .await
-            .map_err(|e| CueError::from_reqwest(&e, NAME).with_hint("Make sure the server is running and the base URL is correct."))?;
+            .map_err(|e| {
+                CueError::from_reqwest(&e, NAME)
+                    .with_hint("Make sure the server is running and the base URL is correct.")
+            })?;
         if !resp.status().is_success() {
             let (s, id, body) = error_body(resp).await;
             return Err(map(s, id, &body));
         }
-        let v: Value = resp.json().await.map_err(|e| CueError::from_reqwest(&e, NAME))?;
+        let v: Value = resp
+            .json()
+            .await
+            .map_err(|e| CueError::from_reqwest(&e, NAME))?;
         Ok(v["data"]
             .as_array()
             .into_iter()
@@ -73,7 +79,12 @@ impl Provider for OpenAiCompatibleProvider {
             .collect())
     }
 
-    async fn chat(&self, req: &ChatRequest, tx: &EventTx, cancel: &CancellationToken) -> CueResult<ChatOutcome> {
+    async fn chat(
+        &self,
+        req: &ChatRequest,
+        tx: &EventTx,
+        cancel: &CancellationToken,
+    ) -> CueResult<ChatOutcome> {
         let mut messages: Vec<Value> = Vec::new();
         if let Some(sys) = req.system.as_deref().filter(|s| !s.is_empty()) {
             messages.push(json!({ "role": "system", "content": sys }));
@@ -93,7 +104,11 @@ impl Provider for OpenAiCompatibleProvider {
         if let Some(m) = req.max_output_tokens {
             body["max_tokens"] = json!(m);
         }
-        let rb = self.auth(self.http.post(join_url(&self.base, "chat/completions")).json(&body));
+        let rb = self.auth(
+            self.http
+                .post(join_url(&self.base, "chat/completions"))
+                .json(&body),
+        );
         let resp = send_cancellable(rb, NAME, cancel).await?;
         if !resp.status().is_success() {
             let (s, id, body) = error_body(resp).await;
@@ -118,7 +133,9 @@ impl Provider for OpenAiCompatibleProvider {
             }
             if let (false, Some(m)) = (model_sent, v["model"].as_str()) {
                 model_sent = true;
-                let _ = tx.send(StreamEvent::Model { model: m.to_string() });
+                let _ = tx.send(StreamEvent::Model {
+                    model: m.to_string(),
+                });
             }
             if let Some(choice) = v["choices"].get(0) {
                 send_delta(tx, choice["delta"]["content"].as_str().unwrap_or(""));
@@ -143,7 +160,9 @@ impl Provider for OpenAiCompatibleProvider {
             return Err(CueError::from_kind(ErrorKind::Network, NAME)
                 .with_detail("The stream ended unexpectedly."));
         }
-        let _ = tx.send(StreamEvent::Usage { usage: usage.clone() });
+        let _ = tx.send(StreamEvent::Usage {
+            usage: usage.clone(),
+        });
         Ok(ChatOutcome { stop, usage })
     }
 }

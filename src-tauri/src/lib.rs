@@ -130,12 +130,16 @@ pub fn run() {
                         window::toggle(tray.app_handle());
                     }
                 });
-            if let Some(icon) = app.default_window_icon() {
-                tray = tray.icon(icon.clone());
-            }
+            // macOS menu bar: monochrome template glyph that adapts to light/dark
+            // menu bars. Elsewhere: the regular colour app icon.
             #[cfg(target_os = "macos")]
             {
-                tray = tray.icon_as_template(true);
+                let glyph = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template@2x.png"))?;
+                tray = tray.icon(glyph).icon_as_template(true);
+            }
+            #[cfg(not(target_os = "macos"))]
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
 
@@ -163,11 +167,10 @@ pub fn run() {
                     .ok()
                     .and_then(|t| *t)
                     .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(700));
-                if hide && !signing_in && !just_shown {
-                    if let Some(win) = app.get_webview_window(window::MAIN) {
+                if hide && !signing_in && !just_shown
+                    && let Some(win) = app.get_webview_window(window::MAIN) {
                         let _ = win.hide();
                     }
-                }
             }
             _ => {}
         })

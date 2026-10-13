@@ -63,7 +63,10 @@ impl CueError {
             status: None,
             retryable: matches!(
                 kind,
-                ErrorKind::RateLimited | ErrorKind::Overloaded | ErrorKind::Network | ErrorKind::Timeout
+                ErrorKind::RateLimited
+                    | ErrorKind::Overloaded
+                    | ErrorKind::Network
+                    | ErrorKind::Timeout
             ),
             request_id: None,
         }
@@ -155,10 +158,17 @@ impl CueError {
                 "Could not access the system credential store.".to_string(),
                 "Make sure the OS keychain / credential manager is available and unlocked.",
             ),
-            ErrorKind::Unknown => (format!("Unexpected error from {provider}."), "See details below."),
+            ErrorKind::Unknown => (
+                format!("Unexpected error from {provider}."),
+                "See details below.",
+            ),
         };
         let e = Self::new(kind, msg);
-        if hint.is_empty() { e } else { e.with_hint(hint) }
+        if hint.is_empty() {
+            e
+        } else {
+            e.with_hint(hint)
+        }
     }
 
     /// Map a transport error from reqwest.
@@ -201,7 +211,10 @@ pub fn redact(text: &str) -> String {
 fn looks_like_secret(w: &str) -> bool {
     const PREFIXES: [&str; 6] = ["sk-", "sk_", "AIza", "eyJ", "rt_", "sess-"];
     (PREFIXES.iter().any(|p| w.starts_with(p)) && w.len() >= 20)
-        || (w.len() >= 40 && w.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)) && w.chars().any(|c| c.is_ascii_digit()))
+        || (w.len() >= 40
+            && w.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+            && w.chars().any(|c| c.is_ascii_digit()))
 }
 
 pub type CueResult<T> = Result<T, CueError>;

@@ -55,7 +55,10 @@ pub struct UsageTotals {
 }
 
 pub fn now_secs() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 impl AppState {
@@ -65,7 +68,11 @@ impl AppState {
             if d.len() >= 300 {
                 d.pop_front();
             }
-            d.push_back(DiagEntry { at: now_secs(), level, message });
+            d.push_back(DiagEntry {
+                at: now_secs(),
+                level,
+                message,
+            });
         }
     }
 
@@ -77,9 +84,16 @@ impl AppState {
     /// Persist history only when the user opted in; otherwise make sure no
     /// history file is left on disk.
     pub fn save_history(&self) {
-        let persist = self.settings.lock().map(|s| s.persist_history).unwrap_or(false);
+        let persist = self
+            .settings
+            .lock()
+            .map(|s| s.persist_history)
+            .unwrap_or(false);
         let res = if persist {
-            self.history.lock().expect("history lock").save(&self.history_path)
+            self.history
+                .lock()
+                .expect("history lock")
+                .save(&self.history_path)
         } else {
             match std::fs::remove_file(&self.history_path) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),

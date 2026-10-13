@@ -12,7 +12,11 @@ use crate::types::{ChatMessage, StopReason};
 fn req(model: &str) -> ChatRequest {
     ChatRequest {
         model: model.into(),
-        messages: vec![ChatMessage::user("Hi"), ChatMessage::assistant("Hello!"), ChatMessage::user("Say ok")],
+        messages: vec![
+            ChatMessage::user("Hi"),
+            ChatMessage::assistant("Hello!"),
+            ChatMessage::user("Say ok"),
+        ],
         system: Some("Be brief.".into()),
         max_output_tokens: Some(256),
     }
@@ -26,10 +30,15 @@ fn sse(events: &[(&str, &str)]) -> ResponseTemplate {
         }
         body.push_str(&format!("data: {data}\n\n"));
     }
-    ResponseTemplate::new(200).insert_header("content-type", "text/event-stream").set_body_string(body)
+    ResponseTemplate::new(200)
+        .insert_header("content-type", "text/event-stream")
+        .set_body_string(body)
 }
 
-async fn run(p: &dyn Provider, r: &ChatRequest) -> (CueResult<ChatOutcome>, String, Vec<StreamEvent>) {
+async fn run(
+    p: &dyn Provider,
+    r: &ChatRequest,
+) -> (CueResult<ChatOutcome>, String, Vec<StreamEvent>) {
     let (tx, mut rx) = unbounded_channel();
     let out = p.chat(r, &tx, &CancellationToken::new()).await;
     drop(tx);
@@ -80,24 +89,57 @@ async fn anthropic_stream_success() {
     let out = out.unwrap();
     assert_eq!(text, "ok", "thinking must not leak into the answer");
     assert_eq!(out.stop, StopReason::Complete);
-    assert_eq!((out.usage.input_tokens, out.usage.output_tokens), (Some(12), Some(5)));
-    assert!(evs.contains(&StreamEvent::Model { model: "claude-x".into() }));
+    assert_eq!(
+        (out.usage.input_tokens, out.usage.output_tokens),
+        (Some(12), Some(5))
+    );
+    assert!(evs.contains(&StreamEvent::Model {
+        model: "claude-x".into()
+    }));
 }
 
 #[tokio::test]
 async fn anthropic_error_mapping() {
     let cases = [
-        (401, r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#, ErrorKind::Auth),
-        (404, r#"{"type":"error","error":{"type":"not_found_error","message":"model: nope"}}"#, ErrorKind::ModelNotFound),
-        (429, r#"{"type":"error","error":{"type":"rate_limit_error","message":"slow"}}"#, ErrorKind::RateLimited),
-        (529, r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#, ErrorKind::Overloaded),
-        (400, r#"{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}"#, ErrorKind::QuotaExceeded),
-        (400, r#"{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 300000 tokens > 200000 maximum"}}"#, ErrorKind::ContextTooLong),
+        (
+            401,
+            r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#,
+            ErrorKind::Auth,
+        ),
+        (
+            404,
+            r#"{"type":"error","error":{"type":"not_found_error","message":"model: nope"}}"#,
+            ErrorKind::ModelNotFound,
+        ),
+        (
+            429,
+            r#"{"type":"error","error":{"type":"rate_limit_error","message":"slow"}}"#,
+            ErrorKind::RateLimited,
+        ),
+        (
+            529,
+            r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
+            ErrorKind::Overloaded,
+        ),
+        (
+            400,
+            r#"{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}"#,
+            ErrorKind::QuotaExceeded,
+        ),
+        (
+            400,
+            r#"{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 300000 tokens > 200000 maximum"}}"#,
+            ErrorKind::ContextTooLong,
+        ),
     ];
     for (status, body, kind) in cases {
         let s = MockServer::start().await;
         Mock::given(method("POST"))
-            .respond_with(ResponseTemplate::new(status).insert_header("request-id", "req_1").set_body_string(body))
+            .respond_with(
+                ResponseTemplate::new(status)
+                    .insert_header("request-id", "req_1")
+                    .set_body_string(body),
+            )
             .mount(&s)
             .await;
         let p = anthropic::AnthropicProvider::new(http(), "sk-test".into(), Some(s.uri()));
@@ -126,11 +168,18 @@ async fn anthropic_midstream_error_and_truncation() {
 
     let s = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(sse(&[("content_block_delta", r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}"#)]))
+        .respond_with(sse(&[(
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}"#,
+        )]))
         .mount(&s)
         .await;
     let p = anthropic::AnthropicProvider::new(http(), "k".into(), Some(s.uri()));
-    assert_eq!(run(&p, &req("m")).await.0.unwrap_err().kind, ErrorKind::Network, "stream without message_stop is an error");
+    assert_eq!(
+        run(&p, &req("m")).await.0.unwrap_err().kind,
+        ErrorKind::Network,
+        "stream without message_stop is an error"
+    );
 }
 
 #[tokio::test]
@@ -153,7 +202,10 @@ async fn anthropic_models_pagination() {
         .await;
     let p = anthropic::AnthropicProvider::new(http(), "k".into(), Some(s.uri()));
     let m = p.list_models().await.unwrap();
-    assert_eq!(m.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+    assert_eq!(
+        m.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["a", "b", "c"]
+    );
     assert_eq!(m[2].max_output_tokens, Some(64000));
     assert_eq!(m[2].context_window, Some(1_000_000));
 }
@@ -182,7 +234,8 @@ async fn cancellation_stops_request() {
 #[tokio::test]
 async fn network_error_is_reported() {
     // Nothing listens on this port.
-    let p = anthropic::AnthropicProvider::new(http(), "k".into(), Some("http://127.0.0.1:9".into()));
+    let p =
+        anthropic::AnthropicProvider::new(http(), "k".into(), Some("http://127.0.0.1:9".into()));
     let e = run(&p, &req("m")).await.0.unwrap_err();
     assert_eq!(e.kind, ErrorKind::Network);
     assert!(e.retryable);
@@ -192,10 +245,22 @@ async fn network_error_is_reported() {
 
 fn openai_stream() -> ResponseTemplate {
     sse(&[
-        ("response.created", r#"{"type":"response.created","response":{"id":"r1","model":"gpt-x-2025","status":"in_progress"}}"#),
-        ("response.output_text.delta", r#"{"type":"response.output_text.delta","delta":"o"}"#),
-        ("response.output_text.delta", r#"{"type":"response.output_text.delta","delta":"k"}"#),
-        ("response.completed", r#"{"type":"response.completed","response":{"id":"r1","status":"completed","usage":{"input_tokens":7,"output_tokens":2}}}"#),
+        (
+            "response.created",
+            r#"{"type":"response.created","response":{"id":"r1","model":"gpt-x-2025","status":"in_progress"}}"#,
+        ),
+        (
+            "response.output_text.delta",
+            r#"{"type":"response.output_text.delta","delta":"o"}"#,
+        ),
+        (
+            "response.output_text.delta",
+            r#"{"type":"response.output_text.delta","delta":"k"}"#,
+        ),
+        (
+            "response.completed",
+            r#"{"type":"response.completed","response":{"id":"r1","status":"completed","usage":{"input_tokens":7,"output_tokens":2}}}"#,
+        ),
     ])
 }
 
@@ -217,7 +282,9 @@ async fn openai_api_key_stream() {
     let out = out.unwrap();
     assert_eq!(text, "ok");
     assert_eq!(out.usage.output_tokens, Some(2));
-    assert!(evs.contains(&StreamEvent::Model { model: "gpt-x-2025".into() }));
+    assert!(evs.contains(&StreamEvent::Model {
+        model: "gpt-x-2025".into()
+    }));
 }
 
 #[tokio::test]
@@ -264,7 +331,11 @@ async fn chatgpt_plan_model_catalog() {
         .await;
     let p = openai::OpenAiProvider::with_chatgpt_plan_at(http(), "t".into(), s.uri());
     let m = p.list_models().await.unwrap();
-    assert_eq!(m.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gpt-b", "gpt-a"], "server order kept, hidden dropped");
+    assert_eq!(
+        m.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["gpt-b", "gpt-a"],
+        "server order kept, hidden dropped"
+    );
 }
 
 #[tokio::test]
@@ -277,7 +348,10 @@ async fn openai_errors_and_incomplete() {
         .mount(&s)
         .await;
     let p = openai::OpenAiProvider::with_api_key(http(), "k".into(), Some(s.uri()));
-    assert_eq!(run(&p, &req("m")).await.0.unwrap_err().kind, ErrorKind::Auth);
+    assert_eq!(
+        run(&p, &req("m")).await.0.unwrap_err().kind,
+        ErrorKind::Auth
+    );
 
     let s = MockServer::start().await;
     Mock::given(method("POST"))
@@ -294,11 +368,17 @@ async fn openai_errors_and_incomplete() {
 
     let s = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(sse(&[("", r#"{"type":"error","code":"rate_limit_exceeded","message":"Rate limit reached"}"#)]))
+        .respond_with(sse(&[(
+            "",
+            r#"{"type":"error","code":"rate_limit_exceeded","message":"Rate limit reached"}"#,
+        )]))
         .mount(&s)
         .await;
     let p = openai::OpenAiProvider::with_api_key(http(), "k".into(), Some(s.uri()));
-    assert_eq!(run(&p, &req("m")).await.0.unwrap_err().kind, ErrorKind::RateLimited);
+    assert_eq!(
+        run(&p, &req("m")).await.0.unwrap_err().kind,
+        ErrorKind::RateLimited
+    );
 }
 
 #[tokio::test]
@@ -314,7 +394,13 @@ async fn openai_api_model_list_filters_non_chat() {
         .mount(&s)
         .await;
     let p = openai::OpenAiProvider::with_api_key(http(), "k".into(), Some(s.uri()));
-    let ids: Vec<String> = p.list_models().await.unwrap().into_iter().map(|m| m.id).collect();
+    let ids: Vec<String> = p
+        .list_models()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
     assert_eq!(ids, ["gpt-new", "gpt-old"]);
 }
 
@@ -344,20 +430,41 @@ async fn gemini_stream_success() {
     let out = out.unwrap();
     assert_eq!(text, "ok");
     assert_eq!(out.usage.output_tokens, Some(5));
-    assert!(evs.contains(&StreamEvent::Model { model: "gemini-x-001".into() }));
+    assert!(evs.contains(&StreamEvent::Model {
+        model: "gemini-x-001".into()
+    }));
 }
 
 #[tokio::test]
 async fn gemini_errors_and_models() {
     let cases = [
-        (400, r#"{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID"}]}}"#, ErrorKind::Auth),
-        (404, r#"{"error":{"code":404,"message":"models/x is not found","status":"NOT_FOUND"}}"#, ErrorKind::ModelNotFound),
-        (429, r#"{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED"}}"#, ErrorKind::RateLimited),
-        (403, r#"{"error":{"code":403,"message":"denied","status":"PERMISSION_DENIED"}}"#, ErrorKind::PermissionDenied),
+        (
+            400,
+            r#"{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID"}]}}"#,
+            ErrorKind::Auth,
+        ),
+        (
+            404,
+            r#"{"error":{"code":404,"message":"models/x is not found","status":"NOT_FOUND"}}"#,
+            ErrorKind::ModelNotFound,
+        ),
+        (
+            429,
+            r#"{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED"}}"#,
+            ErrorKind::RateLimited,
+        ),
+        (
+            403,
+            r#"{"error":{"code":403,"message":"denied","status":"PERMISSION_DENIED"}}"#,
+            ErrorKind::PermissionDenied,
+        ),
     ];
     for (status, body, kind) in cases {
         let s = MockServer::start().await;
-        Mock::given(method("POST")).respond_with(ResponseTemplate::new(status).set_body_string(body)).mount(&s).await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(status).set_body_string(body))
+            .mount(&s)
+            .await;
         let p = gemini::GeminiProvider::new(http(), "k".into(), Some(s.uri()));
         assert_eq!(run(&p, &req("x")).await.0.unwrap_err().kind, kind, "{body}");
     }
@@ -374,18 +481,27 @@ async fn gemini_errors_and_models() {
     let p = gemini::GeminiProvider::new(http(), "k".into(), Some(s.uri()));
     let m = p.list_models().await.unwrap();
     assert_eq!(m.len(), 1);
-    assert_eq!((m[0].id.as_str(), m[0].max_output_tokens), ("gemini-x", Some(65536)));
+    assert_eq!(
+        (m[0].id.as_str(), m[0].max_output_tokens),
+        ("gemini-x", Some(65536))
+    );
 }
 
 #[tokio::test]
 async fn gemini_safety_block() {
     let s = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(sse(&[("", r#"{"candidates":[{"content":{"parts":[],"role":"model"},"finishReason":"SAFETY"}]}"#)]))
+        .respond_with(sse(&[(
+            "",
+            r#"{"candidates":[{"content":{"parts":[],"role":"model"},"finishReason":"SAFETY"}]}"#,
+        )]))
         .mount(&s)
         .await;
     let p = gemini::GeminiProvider::new(http(), "k".into(), Some(s.uri()));
-    assert_eq!(run(&p, &req("x")).await.0.unwrap().stop, StopReason::Refusal);
+    assert_eq!(
+        run(&p, &req("x")).await.0.unwrap().stop,
+        StopReason::Refusal
+    );
 }
 
 // ---------------------------------------------------------------- OpenAI-compatible
@@ -407,7 +523,8 @@ async fn compatible_stream_with_system_and_usage() {
         ]))
         .mount(&s)
         .await;
-    let p = openai_compatible::OpenAiCompatibleProvider::new(http(), format!("{}/v1", s.uri()), None);
+    let p =
+        openai_compatible::OpenAiCompatibleProvider::new(http(), format!("{}/v1", s.uri()), None);
     let (out, text, _) = run(&p, &req("llama3")).await;
     let out = out.unwrap();
     assert_eq!(text, "ok");
@@ -416,12 +533,55 @@ async fn compatible_stream_with_system_and_usage() {
 
 #[tokio::test]
 async fn build_provider_requires_configuration() {
-    let cfg = |kind, auth, credential| ProviderConfig { kind, auth, base_url: None, credential, cli_path: None };
-    let e = build_provider(cfg(ProviderKind::Anthropic, AuthMethod::ApiKey, Credential::None), http()).err().unwrap();
+    let cfg = |kind, auth, credential| ProviderConfig {
+        kind,
+        auth,
+        base_url: None,
+        credential,
+        cli_path: None,
+    };
+    let e = build_provider(
+        cfg(
+            ProviderKind::Anthropic,
+            AuthMethod::ApiKey,
+            Credential::None,
+        ),
+        http(),
+    )
+    .err()
+    .unwrap();
     assert_eq!(e.kind, ErrorKind::NotConfigured);
-    let e = build_provider(cfg(ProviderKind::OpenaiCompatible, AuthMethod::None, Credential::None), http()).err().unwrap();
+    let e = build_provider(
+        cfg(
+            ProviderKind::OpenaiCompatible,
+            AuthMethod::None,
+            Credential::None,
+        ),
+        http(),
+    )
+    .err()
+    .unwrap();
     assert_eq!(e.kind, ErrorKind::NotConfigured);
-    let e = build_provider(cfg(ProviderKind::Openai, AuthMethod::ChatgptOauth, Credential::None), http()).err().unwrap();
+    let e = build_provider(
+        cfg(
+            ProviderKind::Openai,
+            AuthMethod::ChatgptOauth,
+            Credential::None,
+        ),
+        http(),
+    )
+    .err()
+    .unwrap();
     assert_eq!(e.kind, ErrorKind::Auth);
-    assert!(build_provider(cfg(ProviderKind::Gemini, AuthMethod::ApiKey, Credential::ApiKey("k".into())), http()).is_ok());
+    assert!(
+        build_provider(
+            cfg(
+                ProviderKind::Gemini,
+                AuthMethod::ApiKey,
+                Credential::ApiKey("k".into())
+            ),
+            http()
+        )
+        .is_ok()
+    );
 }

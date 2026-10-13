@@ -1,0 +1,14 @@
+#!/bin/sh
+# Fake Claude Code CLI for testing the Claude Code connection without an account.
+# Point Cue at it: AI Providers → Claude Code (local) → "Claude Code path".
+# Emits the documented `--output-format stream-json` message shapes.
+echo "$@" >> "${TMPDIR:-/tmp}/cue-fake-claude-args.log"
+if [ "$1" = "--version" ]; then echo "2.1.296 (Claude Code)"; exit 0; fi
+if [ "$1" = "auth" ]; then echo '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}'; exit 0; fi
+model=sonnet; prev=""; for a in "$@"; do [ "$prev" = "--model" ] && model=$a; prev=$a; done
+input=$(cat)
+echo '{"type":"system","subtype":"init","model":"claude-'$model'-test","tools":[]}'
+for w in "Hello" " from" " fake" " Claude" " Code" " ($model)." " You said:" " $input"; do
+  printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"%s"}}}\n' "$w"; sleep 0.05
+done
+echo '{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":12,"output_tokens":9},"total_cost_usd":0.002}'

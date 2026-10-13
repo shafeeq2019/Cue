@@ -29,7 +29,8 @@ use tokio_util::sync::CancellationToken;
 use crate::error::{CueError, CueResult, ErrorKind};
 
 pub const PLAN_SCOPE: &str = "chatgpt.tokens.use.direct";
-const SCOPES: &str = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
+const SCOPES: &str =
+    "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 const RESOURCE: &str = "https://api.openai.com/v1";
 const DYNAMIC_CLIENT: &str = "dynamic_agent_client";
 const CALLBACK_PATH: &str = "/auth/callback";
@@ -105,7 +106,10 @@ pub struct Reauth {
 }
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn random_token(bytes: usize) -> String {
@@ -164,15 +168,22 @@ async fn bind_loopback() -> CueResult<TcpListener> {
     if let Ok(l) = TcpListener::bind(("127.0.0.1", PREFERRED_PORT)).await {
         return Ok(l);
     }
-    TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .map_err(|e| CueError::new(ErrorKind::Network, "Could not open a local port for sign-in.").with_detail(e.to_string()))
+    TcpListener::bind(("127.0.0.1", 0)).await.map_err(|e| {
+        CueError::new(
+            ErrorKind::Network,
+            "Could not open a local port for sign-in.",
+        )
+        .with_detail(e.to_string())
+    })
 }
 
 const DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>Cue</title><body style=\"font:15px system-ui;padding:48px;text-align:center\"><h2>You can close this tab.</h2><p>Return to Cue.</p></body>";
 
 /// Wait for the browser redirect. Returns the callback query parameters.
-async fn await_callback(listener: TcpListener, cancel: &CancellationToken) -> CueResult<HashMap<String, String>> {
+async fn await_callback(
+    listener: TcpListener,
+    cancel: &CancellationToken,
+) -> CueResult<HashMap<String, String>> {
     let deadline = tokio::time::sleep(Duration::from_secs(300));
     tokio::pin!(deadline);
     loop {
@@ -181,14 +192,20 @@ async fn await_callback(listener: TcpListener, cancel: &CancellationToken) -> Cu
             _ = &mut deadline => return Err(CueError::new(ErrorKind::Timeout, "Sign-in timed out.").with_hint("Start the sign-in again.")),
             a = listener.accept() => a,
         };
-        let Ok((mut sock, _)) = accepted else { continue };
+        let Ok((mut sock, _)) = accepted else {
+            continue;
+        };
         let mut buf = vec![0u8; 16 * 1024];
         let n = match tokio::time::timeout(Duration::from_secs(10), sock.read(&mut buf)).await {
             Ok(Ok(n)) => n,
             _ => continue,
         };
         let req = String::from_utf8_lossy(&buf[..n]);
-        let target = req.lines().next().and_then(|l| l.split_whitespace().nth(1)).unwrap_or("");
+        let target = req
+            .lines()
+            .next()
+            .and_then(|l| l.split_whitespace().nth(1))
+            .unwrap_or("");
         let parsed = url::Url::parse(&format!("http://127.0.0.1{target}")).ok();
         match parsed {
             Some(u) if u.path() == CALLBACK_PATH => {
@@ -200,7 +217,11 @@ async fn await_callback(listener: TcpListener, cancel: &CancellationToken) -> Cu
                 return Ok(u.query_pairs().into_owned().collect());
             }
             _ => {
-                let _ = sock.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                let _ = sock
+                    .write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await;
             }
         }
     }
@@ -230,11 +251,22 @@ struct IdClaims {
 
 fn oauth_error(context: &str, status: u16, body: &str) -> CueError {
     let v: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
-    let code = v["error"].as_str().or_else(|| v["error"]["code"].as_str()).unwrap_or("");
-    let desc = v["error_description"].as_str().or_else(|| v["error"]["message"].as_str()).unwrap_or(body);
+    let code = v["error"]
+        .as_str()
+        .or_else(|| v["error"]["code"].as_str())
+        .unwrap_or("");
+    let desc = v["error_description"]
+        .as_str()
+        .or_else(|| v["error"]["message"].as_str())
+        .unwrap_or(if code.is_empty() { body } else { "" });
     let terminal_refresh = matches!(
         code,
-        "invalid_grant" | "invalid_refresh_token" | "token_expired" | "refresh_token_expired" | "refresh_token_invalidated" | "refresh_token_reused"
+        "invalid_grant"
+            | "invalid_refresh_token"
+            | "token_expired"
+            | "refresh_token_expired"
+            | "refresh_token_invalidated"
+            | "refresh_token_reused"
     );
     let kind = if terminal_refresh || status == 401 {
         ErrorKind::Auth
@@ -245,8 +277,13 @@ fn oauth_error(context: &str, status: u16, body: &str) -> CueError {
     } else {
         ErrorKind::InvalidRequest
     };
+    let detail = match (desc.is_empty(), code.is_empty()) {
+        (true, _) => code.to_string(),
+        (false, true) => desc.to_string(),
+        (false, false) => format!("{desc} ({code})"),
+    };
     let mut e = CueError::new(kind, format!("{context} failed."))
-        .with_detail(format!("{desc} ({code})"))
+        .with_detail(detail)
         .with_status(status);
     if kind == ErrorKind::Auth {
         e = e.with_hint("Sign in with ChatGPT again under AI Providers.");
@@ -263,7 +300,13 @@ async fn verify_id_token(
     nonce: Option<&str>,
 ) -> CueResult<IdClaims> {
     use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header, jwk::JwkSet};
-    let bad = |d: String| CueError::new(ErrorKind::Auth, "The ChatGPT sign-in could not be verified.").with_detail(d);
+    let bad = |d: String| {
+        CueError::new(
+            ErrorKind::Auth,
+            "The ChatGPT sign-in could not be verified.",
+        )
+        .with_detail(d)
+    };
     let header = decode_header(token).map_err(|e| bad(e.to_string()))?;
     let jwks: JwkSet = http
         .get(&ep.jwks)
@@ -284,10 +327,10 @@ async fn verify_id_token(
     v.set_audience(&[client_id]);
     v.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
     let data = decode::<IdClaims>(token, &key, &v).map_err(|e| bad(e.to_string()))?;
-    if let Some(n) = nonce {
-        if data.claims.nonce.as_deref() != Some(n) {
-            return Err(bad("nonce mismatch".into()));
-        }
+    if let Some(n) = nonce
+        && data.claims.nonce.as_deref() != Some(n)
+    {
+        return Err(bad("nonce mismatch".into()));
     }
     Ok(data.claims)
 }
@@ -299,7 +342,10 @@ pub struct ChatGptAuth {
 
 impl ChatGptAuth {
     pub fn new(http: reqwest::Client) -> Self {
-        Self { http, endpoints: Endpoints::default() }
+        Self {
+            http,
+            endpoints: Endpoints::default(),
+        }
     }
 
     /// Full interactive sign-in. `open_browser` must open the URL in the
@@ -312,7 +358,12 @@ impl ChatGptAuth {
         cancel: &CancellationToken,
     ) -> CueResult<ChatGptCredentials> {
         let listener = bind_loopback().await?;
-        let port = listener.local_addr().map_err(|e| CueError::new(ErrorKind::Network, "Local port error.").with_detail(e.to_string()))?.port();
+        let port = listener
+            .local_addr()
+            .map_err(|e| {
+                CueError::new(ErrorKind::Network, "Local port error.").with_detail(e.to_string())
+            })?
+            .port();
         let pending = PendingAuth {
             state: random_token(32),
             nonce: random_token(32),
@@ -321,35 +372,59 @@ impl ChatGptAuth {
             reauth,
         };
         let url = authorize_url(&self.endpoints, &pending, host_id);
-        open_browser(&url).map_err(|e| CueError::new(ErrorKind::Unknown, "Could not open the browser.").with_detail(e))?;
+        open_browser(&url).map_err(|e| {
+            CueError::new(ErrorKind::Unknown, "Could not open the browser.").with_detail(e)
+        })?;
         let params = await_callback(listener, cancel).await?;
         self.complete(&pending, &params).await
     }
 
     /// Validate the callback, exchange the code and verify the result.
-    pub async fn complete(&self, p: &PendingAuth, params: &HashMap<String, String>) -> CueResult<ChatGptCredentials> {
+    pub async fn complete(
+        &self,
+        p: &PendingAuth,
+        params: &HashMap<String, String>,
+    ) -> CueResult<ChatGptCredentials> {
         if params.get("state") != Some(&p.state) {
-            return Err(CueError::new(ErrorKind::Auth, "Sign-in response did not match this request.").with_detail("state mismatch"));
+            return Err(CueError::new(
+                ErrorKind::Auth,
+                "Sign-in response did not match this request.",
+            )
+            .with_detail("state mismatch"));
         }
         if let Some(err) = params.get("error") {
             return Err(if err == "access_denied" {
-                CueError::new(ErrorKind::Auth, "Sign-in was cancelled or ChatGPT plan use was not approved.")
-                    .with_hint("You can sign in again at any time and approve plan usage.")
+                CueError::new(
+                    ErrorKind::Auth,
+                    "Sign-in was cancelled or ChatGPT plan use was not approved.",
+                )
+                .with_hint("You can sign in again at any time and approve plan usage.")
             } else {
-                CueError::new(ErrorKind::Auth, "ChatGPT sign-in failed.")
-                    .with_detail(params.get("error_description").cloned().unwrap_or_else(|| err.clone()))
+                CueError::new(ErrorKind::Auth, "ChatGPT sign-in failed.").with_detail(
+                    params
+                        .get("error_description")
+                        .cloned()
+                        .unwrap_or_else(|| err.clone()),
+                )
             });
         }
-        let code = params.get("code").ok_or_else(|| CueError::new(ErrorKind::Auth, "Sign-in returned no authorization code."))?;
+        let code = params.get("code").ok_or_else(|| {
+            CueError::new(ErrorKind::Auth, "Sign-in returned no authorization code.")
+        })?;
         let client_id = match (&p.reauth, params.get("client_id")) {
             (None, Some(issued)) if issued != DYNAMIC_CLIENT => issued.clone(),
             (None, _) => {
-                return Err(CueError::new(ErrorKind::Auth, "Registration did not complete.")
-                    .with_detail("callback did not include an issued client_id"));
+                return Err(
+                    CueError::new(ErrorKind::Auth, "Registration did not complete.")
+                        .with_detail("callback did not include an issued client_id"),
+                );
             }
             (Some(r), Some(cb)) if cb != &r.client_id => {
-                return Err(CueError::new(ErrorKind::Auth, "Sign-in returned a different app registration.")
-                    .with_detail("client_id mismatch; result rejected"));
+                return Err(CueError::new(
+                    ErrorKind::Auth,
+                    "Sign-in returned a different app registration.",
+                )
+                .with_detail("client_id mismatch; result rejected"));
             }
             (Some(r), _) => r.client_id.clone(),
         };
@@ -373,15 +448,32 @@ impl ChatGptAuth {
         if !(200..300).contains(&status) {
             return Err(oauth_error("Code exchange", status, &body));
         }
-        let tok: TokenResponse = serde_json::from_str(&body)
-            .map_err(|e| CueError::new(ErrorKind::Auth, "Unexpected token response.").with_detail(e.to_string()))?;
-        let id_token = tok.id_token.clone().ok_or_else(|| CueError::new(ErrorKind::Auth, "No ID token returned."))?;
-        let claims = verify_id_token(&self.http, &self.endpoints, &id_token, &client_id, Some(&p.nonce)).await?;
-        if let Some(expected) = p.reauth.as_ref().and_then(|r| r.expected_subject.as_deref()) {
-            if expected != claims.sub {
-                return Err(CueError::new(ErrorKind::Auth, "You signed in with a different ChatGPT account.")
-                    .with_hint("Add it as a separate connection instead."));
-            }
+        let tok: TokenResponse = serde_json::from_str(&body).map_err(|e| {
+            CueError::new(ErrorKind::Auth, "Unexpected token response.").with_detail(e.to_string())
+        })?;
+        let id_token = tok
+            .id_token
+            .clone()
+            .ok_or_else(|| CueError::new(ErrorKind::Auth, "No ID token returned."))?;
+        let claims = verify_id_token(
+            &self.http,
+            &self.endpoints,
+            &id_token,
+            &client_id,
+            Some(&p.nonce),
+        )
+        .await?;
+        if let Some(expected) = p
+            .reauth
+            .as_ref()
+            .and_then(|r| r.expected_subject.as_deref())
+            && expected != claims.sub
+        {
+            return Err(CueError::new(
+                ErrorKind::Auth,
+                "You signed in with a different ChatGPT account.",
+            )
+            .with_hint("Add it as a separate connection instead."));
         }
         let creds = ChatGptCredentials {
             email: claims.email,
@@ -390,22 +482,32 @@ impl ChatGptAuth {
             id_token,
             access_token: tok.access_token,
             refresh_token: tok.refresh_token,
-            scopes: tok.scope.unwrap_or_default().split_whitespace().map(str::to_string).collect(),
+            scopes: tok
+                .scope
+                .unwrap_or_default()
+                .split_whitespace()
+                .map(str::to_string)
+                .collect(),
             expires_at: now() + tok.expires_in.unwrap_or(3600),
         };
         if !creds.has_plan_scope() {
-            return Err(CueError::new(ErrorKind::PermissionDenied, "ChatGPT plan usage was not granted.")
-                .with_hint("Sign in again and allow Cue to use your ChatGPT plan, or use an OpenAI API key."));
+            return Err(CueError::new(
+                ErrorKind::PermissionDenied,
+                "ChatGPT plan usage was not granted.",
+            )
+            .with_hint(
+                "Sign in again and allow Cue to use your ChatGPT plan, or use an OpenAI API key.",
+            ));
         }
         Ok(creds)
     }
 
     /// Standard OAuth refresh (rotating refresh token).
     pub async fn refresh(&self, creds: &ChatGptCredentials) -> CueResult<ChatGptCredentials> {
-        let rt = creds
-            .refresh_token
-            .as_deref()
-            .ok_or_else(|| CueError::new(ErrorKind::Auth, "ChatGPT session expired.").with_hint("Sign in with ChatGPT again."))?;
+        let rt = creds.refresh_token.as_deref().ok_or_else(|| {
+            CueError::new(ErrorKind::Auth, "ChatGPT session expired.")
+                .with_hint("Sign in with ChatGPT again.")
+        })?;
         let resp = self
             .http
             .post(&self.endpoints.token)
@@ -423,8 +525,9 @@ impl ChatGptAuth {
         if !(200..300).contains(&status) {
             return Err(oauth_error("Refreshing the ChatGPT session", status, &body));
         }
-        let tok: TokenResponse = serde_json::from_str(&body)
-            .map_err(|e| CueError::new(ErrorKind::Auth, "Unexpected token response.").with_detail(e.to_string()))?;
+        let tok: TokenResponse = serde_json::from_str(&body).map_err(|e| {
+            CueError::new(ErrorKind::Auth, "Unexpected token response.").with_detail(e.to_string())
+        })?;
         let mut next = creds.clone();
         next.access_token = tok.access_token;
         next.expires_at = now() + tok.expires_in.unwrap_or(3600);
@@ -443,12 +546,18 @@ impl ChatGptAuth {
     /// Revoke the renewable session on sign-out. Returns Ok(false) when remote
     /// revocation could not be confirmed (local tokens are cleared regardless).
     pub async fn revoke(&self, creds: &ChatGptCredentials) -> bool {
-        let Some(rt) = creds.refresh_token.as_deref() else { return true };
+        let Some(rt) = creds.refresh_token.as_deref() else {
+            return true;
+        };
         for attempt in 0..3 {
             let r = self
                 .http
                 .post(&self.endpoints.revoke)
-                .form(&[("token", rt), ("token_type_hint", "refresh_token"), ("client_id", creds.client_id.as_str())])
+                .form(&[
+                    ("token", rt),
+                    ("token_type_hint", "refresh_token"),
+                    ("client_id", creds.client_id.as_str()),
+                ])
                 .send()
                 .await;
             match r {
@@ -472,7 +581,9 @@ mod tests {
     const TEST_KEY_N: &str = include_str!("testdata/test_rsa_n.txt");
 
     fn sign(claims: serde_json::Value) -> String {
-        let der = base64::engine::general_purpose::STANDARD.decode(TEST_KEY_DER_B64.trim()).unwrap();
+        let der = base64::engine::general_purpose::STANDARD
+            .decode(TEST_KEY_DER_B64.trim())
+            .unwrap();
         let mut h = Header::new(jsonwebtoken::Algorithm::RS256);
         h.kid = Some("k1".into());
         encode(&h, &claims, &EncodingKey::from_rsa_der(&der)).unwrap()
@@ -519,8 +630,14 @@ mod tests {
     }
 
     fn cb(extra: &[(&str, &str)]) -> HashMap<String, String> {
-        let mut m: HashMap<String, String> =
-            [("state", "st"), ("code", "c0de"), ("client_id", "oaiapp_123")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+        let mut m: HashMap<String, String> = [
+            ("state", "st"),
+            ("code", "c0de"),
+            ("client_id", "oaiapp_123"),
+        ]
+        .iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect();
         for (k, v) in extra {
             m.insert(k.to_string(), v.to_string());
         }
@@ -536,13 +653,20 @@ mod tests {
 
     #[test]
     fn pkce_matches_rfc7636_example() {
-        assert_eq!(pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+        assert_eq!(
+            pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
     }
 
     #[test]
     fn authorize_url_has_documented_params() {
         let u = authorize_url(&Endpoints::default(), &pending(), "urn:uuid:x");
-        let q: HashMap<String, String> = url::Url::parse(&u).unwrap().query_pairs().into_owned().collect();
+        let q: HashMap<String, String> = url::Url::parse(&u)
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect();
         assert_eq!(q["client_id"], "dynamic_agent_client");
         assert_eq!(q["agent_name_hint"], "Cue");
         assert_eq!(q["ext_agent_host_id"], "urn:uuid:x");
@@ -551,9 +675,17 @@ mod tests {
         assert_eq!(q["code_challenge_method"], "S256");
         assert_eq!(q["redirect_uri"], "http://127.0.0.1:1455/auth/callback");
         let mut p = pending();
-        p.reauth = Some(Reauth { client_id: "oaiapp_1".into(), login_hint: Some("a@b.c".into()), ..Default::default() });
+        p.reauth = Some(Reauth {
+            client_id: "oaiapp_1".into(),
+            login_hint: Some("a@b.c".into()),
+            ..Default::default()
+        });
         let q: HashMap<String, String> =
-            url::Url::parse(&authorize_url(&Endpoints::default(), &p, "h")).unwrap().query_pairs().into_owned().collect();
+            url::Url::parse(&authorize_url(&Endpoints::default(), &p, "h"))
+                .unwrap()
+                .query_pairs()
+                .into_owned()
+                .collect();
         assert_eq!(q["client_id"], "oaiapp_1");
         assert!(!q.contains_key("agent_name_hint"));
         assert_eq!(q["login_hint"], "a@b.c");
@@ -563,7 +695,10 @@ mod tests {
     async fn complete_success_verifies_id_token() {
         let tok = sign(claims("nn", "oaiapp_123"));
         let (_s, ep) = server(&tok, SCOPES).await;
-        let auth = ChatGptAuth { http: reqwest::Client::new(), endpoints: ep };
+        let auth = ChatGptAuth {
+            http: reqwest::Client::new(),
+            endpoints: ep,
+        };
         let c = auth.complete(&pending(), &cb(&[])).await.unwrap();
         assert_eq!(c.client_id, "oaiapp_123");
         assert_eq!(c.subject, "user-1");
@@ -573,24 +708,64 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_bad_nonce_audience_state_and_missing_scope() {
-        let auth_for = |ep| ChatGptAuth { http: reqwest::Client::new(), endpoints: ep };
+        let auth_for = |ep| ChatGptAuth {
+            http: reqwest::Client::new(),
+            endpoints: ep,
+        };
 
         let (_s, ep) = server(&sign(claims("other", "oaiapp_123")), SCOPES).await;
-        assert_eq!(auth_for(ep).complete(&pending(), &cb(&[])).await.unwrap_err().kind, ErrorKind::Auth);
+        assert_eq!(
+            auth_for(ep)
+                .complete(&pending(), &cb(&[]))
+                .await
+                .unwrap_err()
+                .kind,
+            ErrorKind::Auth
+        );
 
         let (_s, ep) = server(&sign(claims("nn", "someone_else")), SCOPES).await;
-        assert_eq!(auth_for(ep).complete(&pending(), &cb(&[])).await.unwrap_err().kind, ErrorKind::Auth);
+        assert_eq!(
+            auth_for(ep)
+                .complete(&pending(), &cb(&[]))
+                .await
+                .unwrap_err()
+                .kind,
+            ErrorKind::Auth
+        );
 
         let (_s, ep) = server(&sign(claims("nn", "oaiapp_123")), "openid email profile").await;
-        assert_eq!(auth_for(ep).complete(&pending(), &cb(&[])).await.unwrap_err().kind, ErrorKind::PermissionDenied);
+        assert_eq!(
+            auth_for(ep)
+                .complete(&pending(), &cb(&[]))
+                .await
+                .unwrap_err()
+                .kind,
+            ErrorKind::PermissionDenied
+        );
 
         let (_s, ep) = server(&sign(claims("nn", "oaiapp_123")), SCOPES).await;
         let a = auth_for(ep);
-        assert!(a.complete(&pending(), &cb(&[("state", "forged")])).await.unwrap_err().detail.unwrap().contains("state"));
-        assert_eq!(a.complete(&pending(), &cb(&[("error", "access_denied")])).await.unwrap_err().kind, ErrorKind::Auth);
+        assert!(
+            a.complete(&pending(), &cb(&[("state", "forged")]))
+                .await
+                .unwrap_err()
+                .detail
+                .unwrap()
+                .contains("state")
+        );
+        assert_eq!(
+            a.complete(&pending(), &cb(&[("error", "access_denied")]))
+                .await
+                .unwrap_err()
+                .kind,
+            ErrorKind::Auth
+        );
         let mut no_client = cb(&[]);
         no_client.remove("client_id");
-        assert!(a.complete(&pending(), &no_client).await.is_err(), "new registration must return an issued client_id");
+        assert!(
+            a.complete(&pending(), &no_client).await.is_err(),
+            "new registration must return an issued client_id"
+        );
     }
 
     #[tokio::test]
@@ -599,8 +774,14 @@ mod tests {
         tok.pop();
         tok.push(if tok.ends_with('A') { 'B' } else { 'A' });
         let (_s, ep) = server(&tok, SCOPES).await;
-        let a = ChatGptAuth { http: reqwest::Client::new(), endpoints: ep };
-        assert_eq!(a.complete(&pending(), &cb(&[])).await.unwrap_err().kind, ErrorKind::Auth);
+        let a = ChatGptAuth {
+            http: reqwest::Client::new(),
+            endpoints: ep,
+        };
+        assert_eq!(
+            a.complete(&pending(), &cb(&[])).await.unwrap_err().kind,
+            ErrorKind::Auth
+        );
     }
 
     #[tokio::test]
@@ -617,11 +798,20 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/token"))
             .and(body_string_contains("refresh_token=dead"))
-            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({ "error": "refresh_token_reused" })))
+            .respond_with(
+                ResponseTemplate::new(400)
+                    .set_body_json(serde_json::json!({ "error": "refresh_token_reused" })),
+            )
             .mount(&s)
             .await;
-        let ep = Endpoints { token: format!("{}/token", s.uri()), ..Endpoints::default() };
-        let a = ChatGptAuth { http: reqwest::Client::new(), endpoints: ep };
+        let ep = Endpoints {
+            token: format!("{}/token", s.uri()),
+            ..Endpoints::default()
+        };
+        let a = ChatGptAuth {
+            http: reqwest::Client::new(),
+            endpoints: ep,
+        };
         let base = ChatGptCredentials {
             email: None,
             subject: "u".into(),
@@ -633,9 +823,15 @@ mod tests {
             expires_at: 0,
         };
         let n = a.refresh(&base).await.unwrap();
-        assert_eq!((n.access_token.as_str(), n.refresh_token.as_deref()), ("at2", Some("rt2")));
+        assert_eq!(
+            (n.access_token.as_str(), n.refresh_token.as_deref()),
+            ("at2", Some("rt2"))
+        );
         assert!(n.needs_refresh(Duration::from_secs(60)));
-        let dead = ChatGptCredentials { refresh_token: Some("dead".into()), ..base };
+        let dead = ChatGptCredentials {
+            refresh_token: Some("dead".into()),
+            ..base
+        };
         assert_eq!(a.refresh(&dead).await.unwrap_err().kind, ErrorKind::Auth);
     }
 
@@ -646,9 +842,19 @@ mod tests {
         let cancel = CancellationToken::new();
         let h = tokio::spawn(async move { await_callback(listener, &cancel).await });
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
-        let r = c.get(format!("http://127.0.0.1:{port}/favicon.ico")).send().await.unwrap();
+        let r = c
+            .get(format!("http://127.0.0.1:{port}/favicon.ico"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status(), 404);
-        let r = c.get(format!("http://127.0.0.1:{port}/auth/callback?code=abc&state=xyz")).send().await.unwrap();
+        let r = c
+            .get(format!(
+                "http://127.0.0.1:{port}/auth/callback?code=abc&state=xyz"
+            ))
+            .send()
+            .await
+            .unwrap();
         assert!(r.text().await.unwrap().contains("close this tab"));
         let q = h.await.unwrap().unwrap();
         assert_eq!(q["code"], "abc");

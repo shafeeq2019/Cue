@@ -1112,7 +1112,9 @@ textarea.sys {
   }
 }
 
-button {
+button.small,
+button.tiny,
+.chip {
   white-space: nowrap;
 }
 button.armed {

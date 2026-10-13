@@ -3,9 +3,9 @@
 
 use std::path::Path;
 
+use cue_core::CueError;
 use cue_core::settings::ModelRef;
 use cue_core::types::{Billing, ChatMessage, ProviderKind, Role, StopReason, Usage};
-use cue_core::CueError;
 use serde::{Deserialize, Serialize};
 
 use crate::state::now_secs;
@@ -56,7 +56,14 @@ pub struct Conversation {
 impl Conversation {
     pub fn new() -> Self {
         let t = now_secs();
-        Self { id: uuid::Uuid::new_v4().to_string(), title: "New chat".into(), created_at: t, updated_at: t, messages: vec![], last_model: None }
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "New chat".into(),
+            created_at: t,
+            updated_at: t,
+            messages: vec![],
+            last_model: None,
+        }
     }
 
     /// Messages to send to a provider: completed turns only, so failed or
@@ -78,7 +85,10 @@ impl Conversation {
                 }
                 (Some(last), Role::Assistant) if last.role == Role::Assistant => {}
                 (None, Role::Assistant) => {}
-                _ => out.push(ChatMessage { role: m.role, content: m.content.clone() }),
+                _ => out.push(ChatMessage {
+                    role: m.role,
+                    content: m.content.clone(),
+                }),
             }
         }
         out
@@ -92,7 +102,10 @@ pub struct History {
 
 impl History {
     pub fn load(path: &Path) -> Self {
-        std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
     }
 
     pub fn save(&self, path: &Path) -> Result<(), String> {
@@ -128,7 +141,11 @@ fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
 }
 
 pub fn title_from(text: &str) -> String {
-    let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("New chat").trim();
+    let line = text
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("New chat")
+        .trim();
     let mut t: String = line.chars().take(60).collect();
     if line.chars().count() > 60 {
         t.push('…');
@@ -172,7 +189,11 @@ mod tests {
 
         // Retrying the same question after a failure does not duplicate it.
         let mut c = Conversation::new();
-        c.messages = vec![msg(Role::User, "q", false), msg(Role::Assistant, "", true), msg(Role::User, "q", false)];
+        c.messages = vec![
+            msg(Role::User, "q", false),
+            msg(Role::Assistant, "", true),
+            msg(Role::User, "q", false),
+        ];
         assert_eq!(c.context().len(), 1);
         assert_eq!(c.context()[0].content, "q");
     }

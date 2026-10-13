@@ -22,42 +22,75 @@ use crate::state::{AppState, now_secs};
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatEvent {
-    Started { request_id: String, conversation_id: String, message_id: String, attribution: Attribution },
-    Delta { text: String },
-    Model { model: String },
-    Notice { message: String },
-    Done { stop: StopReason, usage: Usage },
-    Error { error: CueError },
+    Started {
+        request_id: String,
+        conversation_id: String,
+        message_id: String,
+        attribution: Attribution,
+    },
+    Delta {
+        text: String,
+    },
+    Model {
+        model: String,
+    },
+    Notice {
+        message: String,
+    },
+    Done {
+        stop: StopReason,
+        usage: Usage,
+    },
+    Error {
+        error: CueError,
+    },
 }
 
 /// Load the credential for a connection, refreshing ChatGPT tokens if needed.
-pub async fn credential_for(state: &AppState, conn: &Connection, force_refresh: bool) -> CueResult<Credential> {
+pub async fn credential_for(
+    state: &AppState,
+    conn: &Connection,
+    force_refresh: bool,
+) -> CueResult<Credential> {
     match conn.auth {
         AuthMethod::ApiKey => match state.secrets.get(&api_key_entry(&conn.id))? {
             Some(k) if !k.is_empty() => Ok(Credential::ApiKey(k)),
             _ if conn.kind == ProviderKind::OpenaiCompatible => Ok(Credential::None),
-            _ => Err(CueError::from_kind(ErrorKind::NotConfigured, conn.kind.display_name())
-                .with_hint("No API key stored for this connection. Add one under AI Providers.")),
+            _ => Err(
+                CueError::from_kind(ErrorKind::NotConfigured, conn.kind.display_name()).with_hint(
+                    "No API key stored for this connection. Add one under AI Providers.",
+                ),
+            ),
         },
         AuthMethod::ChatgptOauth => {
             let _guard = state.refresh_lock.lock().await;
             let raw = state.secrets.get(&oauth_entry(&conn.id))?.ok_or_else(|| {
-                CueError::from_kind(ErrorKind::Auth, "ChatGPT").with_hint("Sign in with ChatGPT under AI Providers.")
+                CueError::from_kind(ErrorKind::Auth, "ChatGPT")
+                    .with_hint("Sign in with ChatGPT under AI Providers.")
             })?;
             let creds: ChatGptCredentials = serde_json::from_str(&raw).map_err(|_| {
-                CueError::new(ErrorKind::SecretStore, "Stored ChatGPT credentials are unreadable.")
-                    .with_hint("Sign in with ChatGPT again.")
+                CueError::new(
+                    ErrorKind::SecretStore,
+                    "Stored ChatGPT credentials are unreadable.",
+                )
+                .with_hint("Sign in with ChatGPT again.")
             })?;
             if !creds.has_plan_scope() {
-                return Err(CueError::new(ErrorKind::PermissionDenied, "ChatGPT plan usage was not granted for this account.")
-                    .with_hint("Sign in again and approve plan usage."));
+                return Err(CueError::new(
+                    ErrorKind::PermissionDenied,
+                    "ChatGPT plan usage was not granted for this account.",
+                )
+                .with_hint("Sign in again and approve plan usage."));
             }
             if force_refresh || creds.needs_refresh(Duration::from_secs(120)) {
                 let auth = ChatGptAuth::new(state.http.clone());
                 let next = auth.refresh(&creds).await?;
                 let json = serde_json::to_string(&next).expect("serialize credentials");
                 state.secrets.set(&oauth_entry(&conn.id), &json)?;
-                state.log("info", format!("Refreshed ChatGPT session for connection {}", conn.label));
+                state.log(
+                    "info",
+                    format!("Refreshed ChatGPT session for connection {}", conn.label),
+                );
                 return Ok(Credential::Bearer(next.access_token));
             }
             Ok(Credential::Bearer(creds.access_token))
@@ -66,11 +99,16 @@ pub async fn credential_for(state: &AppState, conn: &Connection, force_refresh: 
     }
 }
 
-pub async fn provider_for(state: &AppState, conn: &Connection, force_refresh: bool) -> CueResult<Box<dyn Provider>> {
+pub async fn provider_for(
+    state: &AppState,
+    conn: &Connection,
+    force_refresh: bool,
+) -> CueResult<Box<dyn Provider>> {
     let credential = credential_for(state, conn, force_refresh).await?;
     if conn.kind == ProviderKind::ClaudeCode {
         return Ok(Box::new(
-            cue_core::providers::claude_code::ClaudeCodeProvider::new(conn.cli_path.clone()).with_work_dir(state.work_dir.clone()),
+            cue_core::providers::claude_code::ClaudeCodeProvider::new(conn.cli_path.clone())
+                .with_work_dir(state.work_dir.clone()),
         ));
     }
     build_provider(
@@ -98,14 +136,18 @@ pub fn attribution(conn: &Connection, model: &str) -> Attribution {
 }
 
 pub fn set_status(state: &AppState, conn_id: &str, result: Result<(), &CueError>) {
-    if let Ok(mut s) = state.settings.lock() {
-        if let Some(c) = s.connection_mut(conn_id) {
-            c.status = Some(ConnectionStatus {
-                state: if result.is_ok() { ConnectionState::Ok } else { ConnectionState::Error },
-                checked_at: now_secs(),
-                error: result.err().cloned(),
-            });
-        }
+    if let Ok(mut s) = state.settings.lock()
+        && let Some(c) = s.connection_mut(conn_id)
+    {
+        c.status = Some(ConnectionStatus {
+            state: if result.is_ok() {
+                ConnectionState::Ok
+            } else {
+                ConnectionState::Error
+            },
+            checked_at: now_secs(),
+            error: result.err().cloned(),
+        });
     }
 }
 
@@ -123,12 +165,20 @@ pub fn spawn_chat(app: AppHandle, args: SendArgs, channel: Channel<ChatEvent>) {
     let cancel = CancellationToken::new();
     {
         let state = app.state::<Arc<AppState>>();
-        state.inflight.lock().expect("inflight").insert(args.request_id.clone(), cancel.clone());
+        state
+            .inflight
+            .lock()
+            .expect("inflight")
+            .insert(args.request_id.clone(), cancel.clone());
     }
     tauri::async_runtime::spawn(async move {
         let state = app.state::<Arc<AppState>>().inner().clone();
         let result = run_chat(&state, &args, &channel, &cancel).await;
-        state.inflight.lock().expect("inflight").remove(&args.request_id);
+        state
+            .inflight
+            .lock()
+            .expect("inflight")
+            .remove(&args.request_id);
 
         match result {
             Ok(((stop, usage), served)) => {
@@ -139,11 +189,20 @@ pub fn spawn_chat(app: AppHandle, args: SendArgs, channel: Channel<ChatEvent>) {
                 if e.kind != ErrorKind::Cancelled {
                     state.log(
                         "error",
-                        format!("{} / {}: {:?} {}", args.conn.label, args.model.model_id, e.kind, e.detail.clone().unwrap_or_default()),
+                        format!(
+                            "{} / {}: {:?} {}",
+                            args.conn.label,
+                            args.model.model_id,
+                            e.kind,
+                            e.detail.clone().unwrap_or_default()
+                        ),
                     );
                 }
                 finish_message(&state, &args, Some(e.clone()), None, Usage::default(), None);
-                if matches!(e.kind, ErrorKind::Auth | ErrorKind::PermissionDenied | ErrorKind::NotConfigured) {
+                if matches!(
+                    e.kind,
+                    ErrorKind::Auth | ErrorKind::PermissionDenied | ErrorKind::NotConfigured
+                ) {
                     set_status(&state, &args.conn.id, Err(&e));
                     let _ = state.save_settings();
                 }
@@ -156,7 +215,12 @@ pub fn spawn_chat(app: AppHandle, args: SendArgs, channel: Channel<ChatEvent>) {
 
 type Outcome = ((StopReason, Usage), Option<String>);
 
-async fn run_chat(state: &AppState, args: &SendArgs, channel: &Channel<ChatEvent>, cancel: &CancellationToken) -> CueResult<Outcome> {
+async fn run_chat(
+    state: &AppState,
+    args: &SendArgs,
+    channel: &Channel<ChatEvent>,
+    cancel: &CancellationToken,
+) -> CueResult<Outcome> {
     let mut force_refresh = false;
     loop {
         let provider = provider_for(state, &args.conn, force_refresh).await?;
@@ -182,7 +246,12 @@ async fn run_chat(state: &AppState, args: &SendArgs, channel: &Channel<ChatEvent
         match result {
             // One transparent retry with a refreshed token if a ChatGPT
             // request is rejected before any output arrived.
-            Err(e) if e.kind == ErrorKind::Auth && args.conn.auth == AuthMethod::ChatgptOauth && !force_refresh && text.is_empty() => {
+            Err(e)
+                if e.kind == ErrorKind::Auth
+                    && args.conn.auth == AuthMethod::ChatgptOauth
+                    && !force_refresh
+                    && text.is_empty() =>
+            {
                 force_refresh = true;
                 continue;
             }
@@ -193,10 +262,14 @@ async fn run_chat(state: &AppState, args: &SendArgs, channel: &Channel<ChatEvent
             Ok(o) => {
                 update_partial(state, args, &text);
                 if o.stop == StopReason::MaxTokens {
-                    let _ = channel.send(ChatEvent::Notice { message: "The answer was cut off at the output token limit.".into() });
+                    let _ = channel.send(ChatEvent::Notice {
+                        message: "The answer was cut off at the output token limit.".into(),
+                    });
                 }
                 if o.stop == StopReason::Refusal {
-                    let _ = channel.send(ChatEvent::Notice { message: "The model declined to answer this request.".into() });
+                    let _ = channel.send(ChatEvent::Notice {
+                        message: "The model declined to answer this request.".into(),
+                    });
                 }
                 record_usage(state, &args.conn.id, &o.usage);
                 return Ok(((o.stop, o.usage), served));
@@ -205,7 +278,12 @@ async fn run_chat(state: &AppState, args: &SendArgs, channel: &Channel<ChatEvent
     }
 }
 
-fn forward(channel: &Channel<ChatEvent>, ev: StreamEvent, text: &mut String, served: &mut Option<String>) {
+fn forward(
+    channel: &Channel<ChatEvent>,
+    ev: StreamEvent,
+    text: &mut String,
+    served: &mut Option<String>,
+) {
     match ev {
         StreamEvent::Delta { text: t } => {
             text.push_str(&t);
@@ -223,25 +301,34 @@ fn forward(channel: &Channel<ChatEvent>, ev: StreamEvent, text: &mut String, ser
 }
 
 fn update_partial(state: &AppState, args: &SendArgs, text: &str) {
-    if let Ok(mut h) = state.history.lock() {
-        if let Some(m) = h.get_mut(&args.conversation_id).and_then(|c| c.messages.iter_mut().find(|m| m.id == args.message_id)) {
-            m.content = text.to_string();
-        }
+    if let Ok(mut h) = state.history.lock()
+        && let Some(m) = h
+            .get_mut(&args.conversation_id)
+            .and_then(|c| c.messages.iter_mut().find(|m| m.id == args.message_id))
+    {
+        m.content = text.to_string();
     }
 }
 
-fn finish_message(state: &AppState, args: &SendArgs, error: Option<CueError>, stop: Option<StopReason>, usage: Usage, served: Option<String>) {
-    if let Ok(mut h) = state.history.lock() {
-        if let Some(conv) = h.get_mut(&args.conversation_id) {
-            conv.updated_at = now_secs();
-            if let Some(m) = conv.messages.iter_mut().find(|m| m.id == args.message_id) {
-                m.pending = false;
-                m.error = error;
-                m.stop = stop;
-                m.usage = Some(usage);
-                if let Some(a) = m.attribution.as_mut() {
-                    a.served_model = served;
-                }
+fn finish_message(
+    state: &AppState,
+    args: &SendArgs,
+    error: Option<CueError>,
+    stop: Option<StopReason>,
+    usage: Usage,
+    served: Option<String>,
+) {
+    if let Ok(mut h) = state.history.lock()
+        && let Some(conv) = h.get_mut(&args.conversation_id)
+    {
+        conv.updated_at = now_secs();
+        if let Some(m) = conv.messages.iter_mut().find(|m| m.id == args.message_id) {
+            m.pending = false;
+            m.error = error;
+            m.stop = stop;
+            m.usage = Some(usage);
+            if let Some(a) = m.attribution.as_mut() {
+                a.served_model = served;
             }
         }
     }

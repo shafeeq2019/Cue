@@ -72,8 +72,11 @@ impl ClaudeCodeProvider {
             return if p.is_file() {
                 Ok(p)
             } else {
-                Err(CueError::not_configured(format!("Claude Code was not found at {}.", p.display()))
-                    .with_hint("Fix the path in AI Providers or leave it empty for auto-detection."))
+                Err(CueError::not_configured(format!(
+                    "Claude Code was not found at {}.",
+                    p.display()
+                ))
+                .with_hint("Fix the path in AI Providers or leave it empty for auto-detection."))
             };
         }
         find_claude().ok_or_else(|| {
@@ -85,7 +88,10 @@ impl ClaudeCodeProvider {
 
     fn command(&self, exe: &Path) -> Command {
         let mut cmd = Command::new(exe);
-        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
         #[cfg(windows)]
         {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -110,9 +116,16 @@ impl ClaudeCodeProvider {
             .args(["auth", "status", "--json"])
             .output()
             .await
-            .map_err(|e| CueError::new(ErrorKind::NotConfigured, "Could not run Claude Code.").with_detail(e.to_string()))?;
+            .map_err(|e| {
+                CueError::new(ErrorKind::NotConfigured, "Could not run Claude Code.")
+                    .with_detail(e.to_string())
+            })?;
         let json: Option<Value> = serde_json::from_slice(&out.stdout).ok();
-        let field = |k: &str| json.as_ref().and_then(|v| v[k].as_str()).map(str::to_string);
+        let field = |k: &str| {
+            json.as_ref()
+                .and_then(|v| v[k].as_str())
+                .map(str::to_string)
+        };
         let auth_method = field("authMethod");
         let logged_in = json
             .as_ref()
@@ -131,9 +144,16 @@ impl ClaudeCodeProvider {
 /// Look for the `claude` executable. GUI apps on macOS do not inherit the
 /// login shell's PATH, so common install locations are checked as well.
 pub fn find_claude() -> Option<PathBuf> {
-    let names: &[&str] = if cfg!(windows) { &["claude.exe", "claude.cmd"] } else { &["claude"] };
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
-    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    let names: &[&str] = if cfg!(windows) {
+        &["claude.exe", "claude.cmd"]
+    } else {
+        &["claude"]
+    };
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    let home =
+        std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
     if let Some(h) = &home {
         dirs.push(h.join(".local/bin"));
         dirs.push(h.join(".claude/local"));
@@ -148,7 +168,9 @@ pub fn find_claude() -> Option<PathBuf> {
         dirs.push("/opt/homebrew/bin".into());
         dirs.push("/usr/local/bin".into());
     }
-    dirs.iter().flat_map(|d| names.iter().map(move |n| d.join(n))).find(|p| p.is_file())
+    dirs.iter()
+        .flat_map(|d| names.iter().map(move |n| d.join(n)))
+        .find(|p| p.is_file())
 }
 
 /// Render the conversation as a single prompt for `claude -p`.
@@ -164,15 +186,25 @@ pub(crate) fn render_prompt(req: &ChatRequest) -> String {
         };
         s.push_str(&format!("<{tag}>\n{}\n</{tag}>\n", m.content));
     }
-    s.push_str("</conversation>\n\nReply to the last user message, taking the earlier turns into account.");
+    s.push_str(
+        "</conversation>\n\nReply to the last user message, taking the earlier turns into account.",
+    );
     s
 }
 
 fn map_result_error(text: &str) -> CueError {
     let l = text.to_ascii_lowercase();
-    let kind = if l.contains("not logged in") || l.contains("/login") || l.contains("invalid api key") || l.contains("authentication") || l.contains("oauth token") {
+    let kind = if l.contains("not logged in")
+        || l.contains("/login")
+        || l.contains("invalid api key")
+        || l.contains("authentication")
+        || l.contains("oauth token")
+    {
         ErrorKind::Auth
-    } else if l.contains("usage limit") || l.contains("limit reached") || l.contains("out of extra usage") {
+    } else if l.contains("usage limit")
+        || l.contains("limit reached")
+        || l.contains("out of extra usage")
+    {
         ErrorKind::SubscriptionLimit
     } else if l.contains("rate limit") {
         ErrorKind::RateLimited
@@ -180,7 +212,9 @@ fn map_result_error(text: &str) -> CueError {
         ErrorKind::QuotaExceeded
     } else if l.contains("overloaded") {
         ErrorKind::Overloaded
-    } else if l.contains("model") && (l.contains("not found") || l.contains("not available") || l.contains("invalid")) {
+    } else if l.contains("model")
+        && (l.contains("not found") || l.contains("not available") || l.contains("invalid"))
+    {
         ErrorKind::ModelNotFound
     } else if l.contains("prompt is too long") {
         ErrorKind::ContextTooLong
@@ -196,12 +230,18 @@ fn map_result_error(text: &str) -> CueError {
 
 /// Parse one stdout line of `--output-format stream-json`.
 /// Returns Some(outcome) when the final `result` message arrives.
-pub(crate) fn handle_line(line: &str, tx: &EventTx, got_partial: &mut bool) -> Option<CueResult<ChatOutcome>> {
+pub(crate) fn handle_line(
+    line: &str,
+    tx: &EventTx,
+    got_partial: &mut bool,
+) -> Option<CueResult<ChatOutcome>> {
     let v: Value = serde_json::from_str(line).ok()?;
     match v["type"].as_str()? {
         "system" if v["subtype"] == "init" => {
             if let Some(m) = v["model"].as_str() {
-                let _ = tx.send(StreamEvent::Model { model: m.to_string() });
+                let _ = tx.send(StreamEvent::Model {
+                    model: m.to_string(),
+                });
             }
         }
         "stream_event" => {
@@ -220,26 +260,42 @@ pub(crate) fn handle_line(line: &str, tx: &EventTx, got_partial: &mut bool) -> O
             }
         }
         "result" => {
-            let is_error = v["is_error"].as_bool().unwrap_or(false) || v["subtype"].as_str().is_some_and(|s| s != "success");
+            let is_error = v["is_error"].as_bool().unwrap_or(false)
+                || v["subtype"].as_str().is_some_and(|s| s != "success");
             if is_error {
                 let text = v["result"].as_str().map(str::to_string).unwrap_or_else(|| {
-                    v["errors"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("; ")).unwrap_or_else(|| v["subtype"].to_string())
+                    v["errors"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_str())
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        })
+                        .unwrap_or_else(|| v["subtype"].to_string())
                 });
                 return Some(Err(map_result_error(&text)));
             }
             let u = &v["usage"];
             let input = u["input_tokens"].as_u64().map(|n| {
-                n + u["cache_read_input_tokens"].as_u64().unwrap_or(0) + u["cache_creation_input_tokens"].as_u64().unwrap_or(0)
+                n + u["cache_read_input_tokens"].as_u64().unwrap_or(0)
+                    + u["cache_creation_input_tokens"].as_u64().unwrap_or(0)
             });
             // `total_cost_usd` is a client-side estimate, not a bill; for plan
             // users it is not charged. Cue therefore does not show it as cost.
-            let usage = Usage { input_tokens: input, output_tokens: u["output_tokens"].as_u64(), reported_cost_usd: None };
+            let usage = Usage {
+                input_tokens: input,
+                output_tokens: u["output_tokens"].as_u64(),
+                reported_cost_usd: None,
+            };
             let stop = match v["stop_reason"].as_str() {
                 Some("max_tokens") => StopReason::MaxTokens,
                 Some("refusal") => StopReason::Refusal,
                 _ => StopReason::Complete,
             };
-            let _ = tx.send(StreamEvent::Usage { usage: usage.clone() });
+            let _ = tx.send(StreamEvent::Usage {
+                usage: usage.clone(),
+            });
             return Some(Ok(ChatOutcome { stop, usage }));
         }
         _ => {}
@@ -260,29 +316,55 @@ impl Provider for ClaudeCodeProvider {
         }
         Ok(MODEL_ALIASES
             .iter()
-            .map(|(id, name)| ModelInfo { id: (*id).into(), display_name: (*name).into(), context_window: None, max_output_tokens: None })
+            .map(|(id, name)| ModelInfo {
+                id: (*id).into(),
+                display_name: (*name).into(),
+                context_window: None,
+                max_output_tokens: None,
+            })
             .collect())
     }
 
-    async fn chat(&self, req: &ChatRequest, tx: &EventTx, cancel: &CancellationToken) -> CueResult<ChatOutcome> {
+    async fn chat(
+        &self,
+        req: &ChatRequest,
+        tx: &EventTx,
+        cancel: &CancellationToken,
+    ) -> CueResult<ChatOutcome> {
         let exe = self.executable()?;
-        std::fs::create_dir_all(&self.work_dir)
-            .map_err(|e| CueError::new(ErrorKind::Unknown, "Could not prepare a working directory.").with_detail(e.to_string()))?;
+        std::fs::create_dir_all(&self.work_dir).map_err(|e| {
+            CueError::new(ErrorKind::Unknown, "Could not prepare a working directory.")
+                .with_detail(e.to_string())
+        })?;
 
         let mut cmd = self.command(&exe);
         cmd.current_dir(&self.work_dir)
             .stdin(Stdio::piped())
-            .args(["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
-            .args(["--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands"])
+            .args([
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--include-partial-messages",
+            ])
+            .args([
+                "--no-session-persistence",
+                "--strict-mcp-config",
+                "--disable-slash-commands",
+            ])
             .args(["--tools", ""]);
         if req.model != "default" && !req.model.is_empty() {
             cmd.args(["--model", &req.model]);
         }
         let sys_file = match req.system.as_deref().filter(|s| !s.is_empty()) {
             Some(sys) => {
-                let path = self.work_dir.join(format!("system-{}.txt", uuid::Uuid::new_v4()));
-                std::fs::write(&path, sys)
-                    .map_err(|e| CueError::new(ErrorKind::Unknown, "Could not write the system prompt.").with_detail(e.to_string()))?;
+                let path = self
+                    .work_dir
+                    .join(format!("system-{}.txt", uuid::Uuid::new_v4()));
+                std::fs::write(&path, sys).map_err(|e| {
+                    CueError::new(ErrorKind::Unknown, "Could not write the system prompt.")
+                        .with_detail(e.to_string())
+                })?;
                 cmd.arg("--system-prompt-file").arg(&path);
                 Some(path)
             }
@@ -298,15 +380,19 @@ impl Provider for ClaudeCodeProvider {
         }
         let _cleanup = Cleanup(sys_file);
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| CueError::new(ErrorKind::NotConfigured, "Could not start Claude Code.").with_detail(e.to_string()))?;
+        let mut child = cmd.spawn().map_err(|e| {
+            CueError::new(ErrorKind::NotConfigured, "Could not start Claude Code.")
+                .with_detail(e.to_string())
+        })?;
         if let Some(mut stdin) = child.stdin.take() {
             let prompt = render_prompt(req);
-            stdin
-                .write_all(prompt.as_bytes())
-                .await
-                .map_err(|e| CueError::new(ErrorKind::Unknown, "Could not send the prompt to Claude Code.").with_detail(e.to_string()))?;
+            stdin.write_all(prompt.as_bytes()).await.map_err(|e| {
+                CueError::new(
+                    ErrorKind::Unknown,
+                    "Could not send the prompt to Claude Code.",
+                )
+                .with_detail(e.to_string())
+            })?;
             drop(stdin);
         }
         let stdout = child.stdout.take().expect("stdout piped");
@@ -336,7 +422,11 @@ impl Provider for ClaudeCodeProvider {
                 }
                 Ok(None) => break,
                 Err(e) => {
-                    outcome.get_or_insert(Err(CueError::new(ErrorKind::Unknown, "Reading Claude Code output failed.").with_detail(e.to_string())));
+                    outcome.get_or_insert(Err(CueError::new(
+                        ErrorKind::Unknown,
+                        "Reading Claude Code output failed.",
+                    )
+                    .with_detail(e.to_string())));
                     break;
                 }
             }
@@ -347,7 +437,10 @@ impl Provider for ClaudeCodeProvider {
             Some(o) => o,
             None => {
                 let detail = if stderr.trim().is_empty() {
-                    format!("Claude Code exited ({}) without a result.", status.map(|s| s.to_string()).unwrap_or_default())
+                    format!(
+                        "Claude Code exited ({}) without a result.",
+                        status.map(|s| s.to_string()).unwrap_or_default()
+                    )
                 } else {
                     stderr.trim().to_string()
                 };
@@ -394,7 +487,10 @@ mod tests {
                 text.push_str(&t);
             }
         }
-        assert_eq!(text, "Hello", "assistant message must not duplicate partial deltas");
+        assert_eq!(
+            text, "Hello",
+            "assistant message must not duplicate partial deltas"
+        );
     }
 
     #[test]
@@ -411,12 +507,20 @@ mod tests {
     fn renders_multi_turn_prompt() {
         let req = ChatRequest {
             model: "sonnet".into(),
-            messages: vec![ChatMessage::user("a"), ChatMessage::assistant("b"), ChatMessage::user("c")],
+            messages: vec![
+                ChatMessage::user("a"),
+                ChatMessage::assistant("b"),
+                ChatMessage::user("c"),
+            ],
             system: None,
             max_output_tokens: None,
         };
         let p = render_prompt(&req);
-        assert!(p.contains("<user>\na\n</user>") && p.contains("<assistant>\nb\n</assistant>") && p.ends_with("account."));
+        assert!(
+            p.contains("<user>\na\n</user>")
+                && p.contains("<assistant>\nb\n</assistant>")
+                && p.ends_with("account.")
+        );
     }
 
     /// End-to-end test against a fake `claude` executable (Unix only).
@@ -440,7 +544,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"usage":{"input_toke
         )
         .unwrap();
         std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let p = ClaudeCodeProvider::new(Some(exe.display().to_string())).with_work_dir(dir.join("work"));
+        let p = ClaudeCodeProvider::new(Some(exe.display().to_string()))
+            .with_work_dir(dir.join("work"));
         let st = p.status().await.unwrap();
         assert!(st.logged_in);
         assert_eq!(st.auth_method.as_deref(), Some("claude.ai"));
@@ -448,7 +553,12 @@ echo '{"type":"result","subtype":"success","is_error":false,"usage":{"input_toke
         assert_eq!(p.list_models().await.unwrap().len(), MODEL_ALIASES.len());
 
         let (tx, mut rx) = chan();
-        let req = ChatRequest { model: "sonnet".into(), messages: vec![ChatMessage::user("hi")], system: Some("be brief".into()), max_output_tokens: None };
+        let req = ChatRequest {
+            model: "sonnet".into(),
+            messages: vec![ChatMessage::user("hi")],
+            system: Some("be brief".into()),
+            max_output_tokens: None,
+        };
         let out = p.chat(&req, &tx, &CancellationToken::new()).await.unwrap();
         assert_eq!(out.usage.output_tokens, Some(2));
         let mut text = String::new();

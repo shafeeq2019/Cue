@@ -109,19 +109,39 @@ fn validate_new(n: &NewConnection) -> CmdResult<()> {
             | (ProviderKind::ClaudeCode, AuthMethod::LocalCli)
     );
     if !ok {
-        return Err(CueError::new(ErrorKind::InvalidRequest, "This sign-in method is not supported for this provider."));
+        return Err(CueError::new(
+            ErrorKind::InvalidRequest,
+            "This sign-in method is not supported for this provider.",
+        ));
     }
-    if n.auth == AuthMethod::ApiKey && n.kind != ProviderKind::OpenaiCompatible && n.api_key.as_deref().is_none_or(|k| k.trim().is_empty()) {
-        return Err(CueError::new(ErrorKind::InvalidRequest, "Enter an API key."));
+    if n.auth == AuthMethod::ApiKey
+        && n.kind != ProviderKind::OpenaiCompatible
+        && n.api_key.as_deref().is_none_or(|k| k.trim().is_empty())
+    {
+        return Err(CueError::new(
+            ErrorKind::InvalidRequest,
+            "Enter an API key.",
+        ));
     }
     if let Some(u) = n.base_url.as_deref().filter(|u| !u.trim().is_empty()) {
-        let parsed = url::Url::parse(u.trim()).map_err(|_| CueError::new(ErrorKind::InvalidRequest, "The server URL is not valid."))?;
-        let local = matches!(parsed.host_str(), Some("localhost") | Some("127.0.0.1") | Some("[::1]"));
+        let parsed = url::Url::parse(u.trim()).map_err(|_| {
+            CueError::new(ErrorKind::InvalidRequest, "The server URL is not valid.")
+        })?;
+        let local = matches!(
+            parsed.host_str(),
+            Some("localhost") | Some("127.0.0.1") | Some("[::1]")
+        );
         if parsed.scheme() != "https" && !(parsed.scheme() == "http" && local) {
-            return Err(CueError::new(ErrorKind::InvalidRequest, "Use https:// (plain http is only allowed for localhost)."));
+            return Err(CueError::new(
+                ErrorKind::InvalidRequest,
+                "Use https:// (plain http is only allowed for localhost).",
+            ));
         }
     } else if n.kind == ProviderKind::OpenaiCompatible {
-        return Err(CueError::new(ErrorKind::InvalidRequest, "Enter the server's base URL, e.g. http://localhost:11434/v1."));
+        return Err(CueError::new(
+            ErrorKind::InvalidRequest,
+            "Enter the server's base URL, e.g. http://localhost:11434/v1.",
+        ));
     }
     Ok(())
 }
@@ -130,11 +150,19 @@ fn validate_new(n: &NewConnection) -> CmdResult<()> {
 pub async fn add_connection(state: S<'_>, conn: NewConnection) -> CmdResult<Connection> {
     validate_new(&conn)?;
     if conn.auth == AuthMethod::ChatgptOauth {
-        return Err(CueError::new(ErrorKind::InvalidRequest, "Use “Continue with ChatGPT” to add this connection."));
+        return Err(CueError::new(
+            ErrorKind::InvalidRequest,
+            "Use “Continue with ChatGPT” to add this connection.",
+        ));
     }
     let id = uuid::Uuid::new_v4().to_string();
     let mut has_secret = false;
-    if let Some(key) = conn.api_key.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
+    if let Some(key) = conn
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+    {
         state.secrets.set(&api_key_entry(&id), key)?;
         has_secret = true;
     }
@@ -142,9 +170,19 @@ pub async fn add_connection(state: S<'_>, conn: NewConnection) -> CmdResult<Conn
         id: id.clone(),
         kind: conn.kind,
         auth: conn.auth,
-        label: if conn.label.trim().is_empty() { conn.kind.display_name().to_string() } else { conn.label.trim().to_string() },
-        base_url: conn.base_url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty()),
-        cli_path: conn.cli_path.map(|u| u.trim().to_string()).filter(|u| !u.is_empty()),
+        label: if conn.label.trim().is_empty() {
+            conn.kind.display_name().to_string()
+        } else {
+            conn.label.trim().to_string()
+        },
+        base_url: conn
+            .base_url
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty()),
+        cli_path: conn
+            .cli_path
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty()),
         enabled: true,
         account: None,
         oauth_client_id: None,
@@ -152,9 +190,17 @@ pub async fn add_connection(state: S<'_>, conn: NewConnection) -> CmdResult<Conn
         status: None,
         has_secret,
     };
-    state.settings.lock().map_err(|_| lock_err())?.connections.push(c.clone());
+    state
+        .settings
+        .lock()
+        .map_err(|_| lock_err())?
+        .connections
+        .push(c.clone());
     state.save_settings()?;
-    state.log("info", format!("Added connection {} ({:?})", c.label, c.kind));
+    state.log(
+        "info",
+        format!("Added connection {} ({:?})", c.label, c.kind),
+    );
     // Test immediately so the user sees real status and models.
     test_connection(state, id).await
 }
@@ -172,12 +218,19 @@ pub struct ConnectionPatch {
 
 #[tauri::command]
 pub fn update_connection(state: S, patch: ConnectionPatch) -> CmdResult<Connection> {
-    if let Some(k) = patch.api_key.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
+    if let Some(k) = patch
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+    {
         state.secrets.set(&api_key_entry(&patch.id), k)?;
     }
     let updated = {
         let mut s = state.settings.lock().map_err(|_| lock_err())?;
-        let c = s.connection_mut(&patch.id).ok_or_else(|| CueError::new(ErrorKind::InvalidRequest, "Connection not found."))?;
+        let c = s
+            .connection_mut(&patch.id)
+            .ok_or_else(|| CueError::new(ErrorKind::InvalidRequest, "Connection not found."))?;
         if let Some(l) = patch.label.filter(|l| !l.trim().is_empty()) {
             c.label = l.trim().into();
         }
@@ -202,16 +255,19 @@ pub fn update_connection(state: S, patch: ConnectionPatch) -> CmdResult<Connecti
 
 #[tauri::command]
 pub async fn remove_connection(state: S<'_>, id: String) -> CmdResult<RemoveResult> {
-    let conn = state.settings.lock().map_err(|_| lock_err())?.connection(&id).cloned();
+    let conn = state
+        .settings
+        .lock()
+        .map_err(|_| lock_err())?
+        .connection(&id)
+        .cloned();
     let mut revoked = true;
-    if let Some(c) = &conn {
-        if c.auth == AuthMethod::ChatgptOauth {
-            if let Ok(Some(raw)) = state.secrets.get(&oauth_entry(&id)) {
-                if let Ok(creds) = serde_json::from_str::<ChatGptCredentials>(&raw) {
-                    revoked = ChatGptAuth::new(state.http.clone()).revoke(&creds).await;
-                }
-            }
-        }
+    if let Some(c) = &conn
+        && c.auth == AuthMethod::ChatgptOauth
+        && let Ok(Some(raw)) = state.secrets.get(&oauth_entry(&id))
+        && let Ok(creds) = serde_json::from_str::<ChatGptCredentials>(&raw)
+    {
+        revoked = ChatGptAuth::new(state.http.clone()).revoke(&creds).await;
     }
     state.secrets.delete(&api_key_entry(&id))?;
     state.secrets.delete(&oauth_entry(&id))?;
@@ -231,7 +287,9 @@ pub async fn remove_connection(state: S<'_>, id: String) -> CmdResult<RemoveResu
     }
     state.save_settings()?;
     state.log("info", "Removed a connection and its stored credentials");
-    Ok(RemoveResult { remote_revocation_confirmed: revoked })
+    Ok(RemoveResult {
+        remote_revocation_confirmed: revoked,
+    })
 }
 
 #[derive(Serialize)]
@@ -252,8 +310,15 @@ pub async fn test_connection(state: S<'_>, id: String) -> CmdResult<Connection> 
 
     let result: Result<(Vec<ModelInfo>, Option<AccountInfo>), CueError> = async {
         let account = if conn.kind == ProviderKind::ClaudeCode {
-            let st = ClaudeCodeProvider::new(conn.cli_path.clone()).status().await?;
-            Some(AccountInfo { email: None, subject: None, plan: st.subscription.clone(), auth_detail: st.auth_method.clone() })
+            let st = ClaudeCodeProvider::new(conn.cli_path.clone())
+                .status()
+                .await?;
+            Some(AccountInfo {
+                email: None,
+                subject: None,
+                plan: st.subscription.clone(),
+                auth_detail: st.auth_method.clone(),
+            })
         } else {
             conn.account.clone()
         };
@@ -264,7 +329,9 @@ pub async fn test_connection(state: S<'_>, id: String) -> CmdResult<Connection> 
 
     let updated = {
         let mut s = state.settings.lock().map_err(|_| lock_err())?;
-        let c = s.connection_mut(&id).ok_or_else(|| CueError::new(ErrorKind::InvalidRequest, "Connection not found."))?;
+        let c = s
+            .connection_mut(&id)
+            .ok_or_else(|| CueError::new(ErrorKind::InvalidRequest, "Connection not found."))?;
         match &result {
             Ok((models, account)) => {
                 c.models = models.clone();
@@ -273,7 +340,10 @@ pub async fn test_connection(state: S<'_>, id: String) -> CmdResult<Connection> 
                     state: cue_core::settings::ConnectionState::Ok,
                     checked_at: now_secs(),
                     error: if models.is_empty() {
-                        Some(CueError::new(ErrorKind::ModelNotFound, "Connected, but no chat models are available for this account."))
+                        Some(CueError::new(
+                            ErrorKind::ModelNotFound,
+                            "Connected, but no chat models are available for this account.",
+                        ))
                     } else {
                         None
                     },
@@ -291,7 +361,15 @@ pub async fn test_connection(state: S<'_>, id: String) -> CmdResult<Connection> 
     };
     state.save_settings()?;
     if let Err(e) = &result {
-        state.log("warn", format!("Test of {} failed: {:?} {}", conn.label, e.kind, e.detail.clone().unwrap_or_default()));
+        state.log(
+            "warn",
+            format!(
+                "Test of {} failed: {:?} {}",
+                conn.label,
+                e.kind,
+                e.detail.clone().unwrap_or_default()
+            ),
+        );
     }
     Ok(updated)
 }
@@ -304,15 +382,29 @@ pub async fn claude_code_status(cli_path: Option<String>) -> CmdResult<ClaudeCod
 /// Official "Sign in with ChatGPT" (system browser, PKCE, loopback).
 /// With `connection_id`, re-authorises that existing registration.
 #[tauri::command]
-pub async fn chatgpt_sign_in(app: AppHandle, state: S<'_>, connection_id: Option<String>, label: Option<String>) -> CmdResult<Connection> {
+pub async fn chatgpt_sign_in(
+    app: AppHandle,
+    state: S<'_>,
+    connection_id: Option<String>,
+    label: Option<String>,
+) -> CmdResult<Connection> {
     let (host_id, existing) = {
         let s = state.settings.lock().map_err(|_| lock_err())?;
-        (s.host_id.clone(), connection_id.as_deref().and_then(|id| s.connection(id).cloned()))
+        (
+            s.host_id.clone(),
+            connection_id
+                .as_deref()
+                .and_then(|id| s.connection(id).cloned()),
+        )
     };
     let reauth = existing.as_ref().and_then(|c| {
         let client_id = c.oauth_client_id.clone()?;
-        let stored: Option<ChatGptCredentials> =
-            state.secrets.get(&oauth_entry(&c.id)).ok().flatten().and_then(|r| serde_json::from_str(&r).ok());
+        let stored: Option<ChatGptCredentials> = state
+            .secrets
+            .get(&oauth_entry(&c.id))
+            .ok()
+            .flatten()
+            .and_then(|r| serde_json::from_str(&r).ok());
         Some(Reauth {
             client_id,
             id_token_hint: stored.as_ref().map(|s| s.id_token.clone()),
@@ -321,23 +413,49 @@ pub async fn chatgpt_sign_in(app: AppHandle, state: S<'_>, connection_id: Option
         })
     });
     let cancel = CancellationToken::new();
-    if let Some(old) = state.sign_in.lock().map_err(|_| lock_err())?.replace(cancel.clone()) {
+    if let Some(old) = state
+        .sign_in
+        .lock()
+        .map_err(|_| lock_err())?
+        .replace(cancel.clone())
+    {
         old.cancel();
     }
     let auth = ChatGptAuth::new(state.http.clone());
     let opener = app.clone();
     let creds = auth
-        .sign_in(&host_id, reauth, move |url| opener.opener().open_url(url, None::<&str>).map_err(|e| e.to_string()), &cancel)
+        .sign_in(
+            &host_id,
+            reauth,
+            move |url| {
+                opener
+                    .opener()
+                    .open_url(url, None::<&str>)
+                    .map_err(|e| e.to_string())
+            },
+            &cancel,
+        )
         .await;
     state.sign_in.lock().map_err(|_| lock_err())?.take();
     window::show(&app);
     let creds = creds?;
 
-    let id = existing.as_ref().map(|c| c.id.clone()).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    state.secrets.set(&oauth_entry(&id), &serde_json::to_string(&creds).expect("serialize"))?;
+    let id = existing
+        .as_ref()
+        .map(|c| c.id.clone())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    state.secrets.set(
+        &oauth_entry(&id),
+        &serde_json::to_string(&creds).expect("serialize"),
+    )?;
     {
         let mut s = state.settings.lock().map_err(|_| lock_err())?;
-        let account = AccountInfo { email: creds.email.clone(), subject: Some(creds.subject.clone()), plan: None, auth_detail: Some("chatgpt_plan".into()) };
+        let account = AccountInfo {
+            email: creds.email.clone(),
+            subject: Some(creds.subject.clone()),
+            plan: None,
+            auth_detail: Some("chatgpt_plan".into()),
+        };
         match s.connection_mut(&id) {
             Some(c) => {
                 c.account = Some(account);
@@ -349,7 +467,10 @@ pub async fn chatgpt_sign_in(app: AppHandle, state: S<'_>, connection_id: Option
                 kind: ProviderKind::Openai,
                 auth: AuthMethod::ChatgptOauth,
                 label: label.filter(|l| !l.trim().is_empty()).unwrap_or_else(|| {
-                    format!("ChatGPT ({})", creds.email.clone().unwrap_or_else(|| "account".into()))
+                    format!(
+                        "ChatGPT ({})",
+                        creds.email.clone().unwrap_or_else(|| "account".into())
+                    )
                 }),
                 base_url: None,
                 cli_path: None,
@@ -369,10 +490,10 @@ pub async fn chatgpt_sign_in(app: AppHandle, state: S<'_>, connection_id: Option
 
 #[tauri::command]
 pub fn chatgpt_cancel_sign_in(state: S) {
-    if let Ok(mut g) = state.sign_in.lock() {
-        if let Some(c) = g.take() {
-            c.cancel();
-        }
+    if let Ok(mut g) = state.sign_in.lock()
+        && let Some(c) = g.take()
+    {
+        c.cancel();
     }
 }
 
@@ -380,10 +501,17 @@ pub fn chatgpt_cancel_sign_in(state: S) {
 
 #[tauri::command]
 pub fn set_default_model(state: S, model: Option<ModelRef>) -> CmdResult<()> {
-    if let Some(m) = &model {
-        if !state.settings.lock().map_err(|_| lock_err())?.is_available(m) {
-            return Err(CueError::from_kind(ErrorKind::ModelNotFound, "this connection"));
-        }
+    if let Some(m) = &model
+        && !state
+            .settings
+            .lock()
+            .map_err(|_| lock_err())?
+            .is_available(m)
+    {
+        return Err(CueError::from_kind(
+            ErrorKind::ModelNotFound,
+            "this connection",
+        ));
     }
     state.settings.lock().map_err(|_| lock_err())?.default_model = model;
     state.save_settings()
@@ -392,10 +520,13 @@ pub fn set_default_model(state: S, model: Option<ModelRef>) -> CmdResult<()> {
 #[tauri::command]
 pub fn set_mode_model(state: S, mode: Mode, model: Option<ModelRef>) -> CmdResult<()> {
     let mut s = state.settings.lock().map_err(|_| lock_err())?;
-    if let Some(m) = &model {
-        if !s.is_available(m) {
-            return Err(CueError::from_kind(ErrorKind::ModelNotFound, "this connection"));
-        }
+    if let Some(m) = &model
+        && !s.is_available(m)
+    {
+        return Err(CueError::from_kind(
+            ErrorKind::ModelNotFound,
+            "this connection",
+        ));
     }
     match mode {
         Mode::Fast => s.modes.fast = model,
@@ -445,7 +576,12 @@ pub fn check_hotkey(accelerator: String) -> HotkeyCheck {
 
 #[tauri::command]
 pub fn set_hotkey(app: AppHandle, state: S, accelerator: String) -> CmdResult<HotkeyCheck> {
-    let old = state.settings.lock().map_err(|_| lock_err())?.hotkey.clone();
+    let old = state
+        .settings
+        .lock()
+        .map_err(|_| lock_err())?
+        .hotkey
+        .clone();
     if old == accelerator {
         return Ok(hotkey::check(&accelerator));
     }
@@ -474,8 +610,14 @@ pub fn set_launch_at_login(app: AppHandle, enabled: bool) -> CmdResult<bool> {
     use tauri_plugin_autostart::ManagerExt;
     let m = app.autolaunch();
     let r = if enabled { m.enable() } else { m.disable() };
-    r.map_err(|e| CueError::new(ErrorKind::Unknown, "Could not change the login item.").with_detail(e.to_string()))?;
-    m.is_enabled().map_err(|e| CueError::new(ErrorKind::Unknown, "Could not read the login item.").with_detail(e.to_string()))
+    r.map_err(|e| {
+        CueError::new(ErrorKind::Unknown, "Could not change the login item.")
+            .with_detail(e.to_string())
+    })?;
+    m.is_enabled().map_err(|e| {
+        CueError::new(ErrorKind::Unknown, "Could not read the login item.")
+            .with_detail(e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -502,23 +644,44 @@ pub struct SendResponse {
 }
 
 #[tauri::command]
-pub fn send_message(app: AppHandle, state: S, req: SendRequest, channel: Channel<ChatEvent>) -> CmdResult<SendResponse> {
+pub fn send_message(
+    app: AppHandle,
+    state: S,
+    req: SendRequest,
+    channel: Channel<ChatEvent>,
+) -> CmdResult<SendResponse> {
     let text = req.text.trim().to_string();
     if text.is_empty() {
-        return Err(CueError::new(ErrorKind::InvalidRequest, "Type a message first."));
+        return Err(CueError::new(
+            ErrorKind::InvalidRequest,
+            "Type a message first.",
+        ));
     }
     let (conn, system, model_info) = {
         let s = state.settings.lock().map_err(|_| lock_err())?;
         let conn = s
             .connection(&req.model.connection_id)
             .cloned()
-            .ok_or_else(|| CueError::not_configured("This connection no longer exists.").with_hint("Pick another model."))?;
+            .ok_or_else(|| {
+                CueError::not_configured("This connection no longer exists.")
+                    .with_hint("Pick another model.")
+            })?;
         if !conn.enabled {
-            return Err(CueError::not_configured(format!("“{}” is disabled.", conn.label)).with_hint("Enable it under AI Providers."));
+            return Err(
+                CueError::not_configured(format!("“{}” is disabled.", conn.label))
+                    .with_hint("Enable it under AI Providers."),
+            );
         }
-        let model_info = conn.models.iter().find(|m| m.id == req.model.model_id).cloned();
+        let model_info = conn
+            .models
+            .iter()
+            .find(|m| m.id == req.model.model_id)
+            .cloned();
         if model_info.is_none() {
-            return Err(CueError::from_kind(ErrorKind::ModelNotFound, conn.kind.display_name()));
+            return Err(CueError::from_kind(
+                ErrorKind::ModelNotFound,
+                conn.kind.display_name(),
+            ));
         }
         (conn, s.system_prompt.clone(), model_info)
     };
@@ -539,7 +702,11 @@ pub fn send_message(app: AppHandle, state: S, req: SendRequest, channel: Channel
 
     let (conversation_id, context) = {
         let mut h = state.history.lock().map_err(|_| lock_err())?;
-        let id = match req.conversation_id.as_deref().filter(|id| h.get(id).is_some()) {
+        let id = match req
+            .conversation_id
+            .as_deref()
+            .filter(|id| h.get(id).is_some())
+        {
             Some(id) => id.to_string(),
             None => {
                 let mut c = Conversation::new();
@@ -558,7 +725,9 @@ pub fn send_message(app: AppHandle, state: S, req: SendRequest, channel: Channel
         (id, context)
     };
 
-    let max_output_tokens = model_info.and_then(|m| m.max_output_tokens).map(|m| m.min(16_000) as u32);
+    let max_output_tokens = model_info
+        .and_then(|m| m.max_output_tokens)
+        .map(|m| m.min(16_000) as u32);
     let request_id = uuid::Uuid::new_v4().to_string();
     let _ = channel.send(ChatEvent::Started {
         request_id: request_id.clone(),
@@ -573,17 +742,32 @@ pub fn send_message(app: AppHandle, state: S, req: SendRequest, channel: Channel
             request_id: request_id.clone(),
             message_id: assistant.id.clone(),
             model: req.model.clone(),
-            request: ChatRequest { model: req.model.model_id.clone(), messages: context, system, max_output_tokens },
+            request: ChatRequest {
+                model: req.model.model_id.clone(),
+                messages: context,
+                system,
+                max_output_tokens,
+            },
             conn,
         },
         channel,
     );
-    Ok(SendResponse { request_id, conversation_id, user_message: user, assistant_message: assistant })
+    Ok(SendResponse {
+        request_id,
+        conversation_id,
+        user_message: user,
+        assistant_message: assistant,
+    })
 }
 
 #[tauri::command]
 pub fn cancel_message(state: S, request_id: String) {
-    if let Some(c) = state.inflight.lock().ok().and_then(|m| m.get(&request_id).cloned()) {
+    if let Some(c) = state
+        .inflight
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&request_id).cloned())
+    {
         c.cancel();
     }
 }
@@ -603,27 +787,47 @@ pub fn list_conversations(state: S) -> CmdResult<Vec<ConversationSummary>> {
         .conversations
         .iter()
         .filter(|c| !c.messages.is_empty())
-        .map(|c| ConversationSummary { id: c.id.clone(), title: c.title.clone(), updated_at: c.updated_at, message_count: c.messages.len() })
+        .map(|c| ConversationSummary {
+            id: c.id.clone(),
+            title: c.title.clone(),
+            updated_at: c.updated_at,
+            message_count: c.messages.len(),
+        })
         .collect();
-    list.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    list.sort_by_key(|c| std::cmp::Reverse(c.updated_at));
     Ok(list)
 }
 
 #[tauri::command]
 pub fn get_conversation(state: S, id: String) -> CmdResult<Option<Conversation>> {
-    Ok(state.history.lock().map_err(|_| lock_err())?.get(&id).cloned())
+    Ok(state
+        .history
+        .lock()
+        .map_err(|_| lock_err())?
+        .get(&id)
+        .cloned())
 }
 
 #[tauri::command]
 pub fn delete_conversation(state: S, id: String) -> CmdResult<()> {
-    state.history.lock().map_err(|_| lock_err())?.conversations.retain(|c| c.id != id);
+    state
+        .history
+        .lock()
+        .map_err(|_| lock_err())?
+        .conversations
+        .retain(|c| c.id != id);
     state.save_history();
     Ok(())
 }
 
 #[tauri::command]
 pub fn clear_history(state: S) -> CmdResult<()> {
-    state.history.lock().map_err(|_| lock_err())?.conversations.clear();
+    state
+        .history
+        .lock()
+        .map_err(|_| lock_err())?
+        .conversations
+        .clear();
     // Remove the file regardless of the persistence setting.
     let _ = std::fs::remove_file(&state.history_path);
     state.save_history();
@@ -635,9 +839,10 @@ pub fn clear_history(state: S) -> CmdResult<()> {
 
 #[tauri::command]
 pub fn copy_text(app: AppHandle, text: String) -> CmdResult<()> {
-    app.clipboard()
-        .write_text(text)
-        .map_err(|e| CueError::new(ErrorKind::Unknown, "Could not copy to the clipboard.").with_detail(e.to_string()))
+    app.clipboard().write_text(text).map_err(|e| {
+        CueError::new(ErrorKind::Unknown, "Could not copy to the clipboard.")
+            .with_detail(e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -659,17 +864,27 @@ pub fn open_external(app: AppHandle, url: String) -> CmdResult<()> {
         "https://openrouter.ai",
         USAGE_URL,
     ];
-    if !ALLOWED.iter().any(|a| url == *a || url.starts_with(&format!("{a}/"))) {
-        return Err(CueError::new(ErrorKind::InvalidRequest, "This link is not allowed."));
+    if !ALLOWED
+        .iter()
+        .any(|a| url == *a || url.starts_with(&format!("{a}/")))
+    {
+        return Err(CueError::new(
+            ErrorKind::InvalidRequest,
+            "This link is not allowed.",
+        ));
     }
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|e| CueError::new(ErrorKind::Unknown, "Could not open the browser.").with_detail(e.to_string()))
+    app.opener().open_url(url, None::<&str>).map_err(|e| {
+        CueError::new(ErrorKind::Unknown, "Could not open the browser.").with_detail(e.to_string())
+    })
 }
 
 #[tauri::command]
 pub fn get_diagnostics(state: S) -> Vec<DiagEntry> {
-    state.diagnostics.lock().map(|d| d.iter().cloned().collect()).unwrap_or_default()
+    state
+        .diagnostics
+        .lock()
+        .map(|d| d.iter().cloned().collect())
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -683,21 +898,97 @@ pub fn clear_diagnostics(state: S) {
 mod tests {
     use super::*;
 
-    fn n(kind: ProviderKind, auth: AuthMethod, key: Option<&str>, url: Option<&str>) -> NewConnection {
-        NewConnection { kind, auth, label: "x".into(), base_url: url.map(Into::into), cli_path: None, api_key: key.map(Into::into) }
+    fn n(
+        kind: ProviderKind,
+        auth: AuthMethod,
+        key: Option<&str>,
+        url: Option<&str>,
+    ) -> NewConnection {
+        NewConnection {
+            kind,
+            auth,
+            label: "x".into(),
+            base_url: url.map(Into::into),
+            cli_path: None,
+            api_key: key.map(Into::into),
+        }
     }
 
     #[test]
     fn connection_validation() {
-        assert!(validate_new(&n(ProviderKind::Anthropic, AuthMethod::ApiKey, Some("k"), None)).is_ok());
-        assert!(validate_new(&n(ProviderKind::Anthropic, AuthMethod::ApiKey, Some("  "), None)).is_err());
+        assert!(
+            validate_new(&n(
+                ProviderKind::Anthropic,
+                AuthMethod::ApiKey,
+                Some("k"),
+                None
+            ))
+            .is_ok()
+        );
+        assert!(
+            validate_new(&n(
+                ProviderKind::Anthropic,
+                AuthMethod::ApiKey,
+                Some("  "),
+                None
+            ))
+            .is_err()
+        );
         // Claude subscription OAuth is deliberately not offered.
-        assert!(validate_new(&n(ProviderKind::Anthropic, AuthMethod::ChatgptOauth, None, None)).is_err());
+        assert!(
+            validate_new(&n(
+                ProviderKind::Anthropic,
+                AuthMethod::ChatgptOauth,
+                None,
+                None
+            ))
+            .is_err()
+        );
         assert!(validate_new(&n(ProviderKind::Gemini, AuthMethod::LocalCli, None, None)).is_err());
-        assert!(validate_new(&n(ProviderKind::OpenaiCompatible, AuthMethod::None, None, Some("http://localhost:11434/v1"))).is_ok());
-        assert!(validate_new(&n(ProviderKind::OpenaiCompatible, AuthMethod::None, None, Some("http://example.com/v1"))).is_err());
-        assert!(validate_new(&n(ProviderKind::OpenaiCompatible, AuthMethod::ApiKey, Some("k"), Some("https://openrouter.ai/api/v1"))).is_ok());
-        assert!(validate_new(&n(ProviderKind::OpenaiCompatible, AuthMethod::None, None, None)).is_err());
-        assert!(validate_new(&n(ProviderKind::ClaudeCode, AuthMethod::LocalCli, None, None)).is_ok());
+        assert!(
+            validate_new(&n(
+                ProviderKind::OpenaiCompatible,
+                AuthMethod::None,
+                None,
+                Some("http://localhost:11434/v1")
+            ))
+            .is_ok()
+        );
+        assert!(
+            validate_new(&n(
+                ProviderKind::OpenaiCompatible,
+                AuthMethod::None,
+                None,
+                Some("http://example.com/v1")
+            ))
+            .is_err()
+        );
+        assert!(
+            validate_new(&n(
+                ProviderKind::OpenaiCompatible,
+                AuthMethod::ApiKey,
+                Some("k"),
+                Some("https://openrouter.ai/api/v1")
+            ))
+            .is_ok()
+        );
+        assert!(
+            validate_new(&n(
+                ProviderKind::OpenaiCompatible,
+                AuthMethod::None,
+                None,
+                None
+            ))
+            .is_err()
+        );
+        assert!(
+            validate_new(&n(
+                ProviderKind::ClaudeCode,
+                AuthMethod::LocalCli,
+                None,
+                None
+            ))
+            .is_ok()
+        );
     }
 }

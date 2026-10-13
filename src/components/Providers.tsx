@@ -101,7 +101,7 @@ function ConnectionCard({ c, info, onChanged, toast }: { c: Connection; info: Ap
           className="small ghost danger"
           disabled={!!busy}
           label="Remove"
-          confirmLabel="Remove connection and its stored credentials?"
+          confirmLabel="Confirm remove"
           onConfirm={() =>
             run("remove", async () => {
               const r = await api.removeConnection(c.id);

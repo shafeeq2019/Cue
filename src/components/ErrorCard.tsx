@@ -15,6 +15,7 @@ const TITLES: Partial<Record<CueError["kind"], string>> = {
   context_too_long: "Conversation too long",
   refusal: "Declined",
   secret_store: "Credential store problem",
+  invalid_request: "Please check",
 };
 
 export function ErrorCard({

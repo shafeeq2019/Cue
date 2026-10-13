@@ -81,7 +81,10 @@ impl SseParser {
             self.event = None;
             return None;
         }
-        let ev = SseEvent { event: self.event.take(), data: self.data.join("\n") };
+        let ev = SseEvent {
+            event: self.event.take(),
+            data: self.data.join("\n"),
+        };
         self.data.clear();
         Some(ev)
     }

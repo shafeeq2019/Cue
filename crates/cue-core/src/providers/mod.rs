@@ -29,7 +29,12 @@ pub trait Provider: Send + Sync {
 
     /// Stream a chat completion. Text deltas are sent on `tx`; the final
     /// outcome (stop reason + usage) is returned.
-    async fn chat(&self, req: &ChatRequest, tx: &EventTx, cancel: &CancellationToken) -> CueResult<ChatOutcome>;
+    async fn chat(
+        &self,
+        req: &ChatRequest,
+        tx: &EventTx,
+        cancel: &CancellationToken,
+    ) -> CueResult<ChatOutcome>;
 }
 
 /// Secret material resolved from the OS credential store just before use.
@@ -70,13 +75,15 @@ pub fn build_provider(cfg: ProviderConfig, http: reqwest::Client) -> CueResult<B
     };
     Ok(match cfg.kind {
         ProviderKind::Anthropic => match cfg.credential {
-            Credential::ApiKey(key) => Box::new(anthropic::AnthropicProvider::new(http, key, cfg.base_url)),
+            Credential::ApiKey(key) => {
+                Box::new(anthropic::AnthropicProvider::new(http, key, cfg.base_url))
+            }
             _ => return Err(missing_key("Anthropic")),
         },
         ProviderKind::Openai => match (cfg.auth, cfg.credential) {
-            (AuthMethod::ApiKey, Credential::ApiKey(key)) => {
-                Box::new(openai::OpenAiProvider::with_api_key(http, key, cfg.base_url))
-            }
+            (AuthMethod::ApiKey, Credential::ApiKey(key)) => Box::new(
+                openai::OpenAiProvider::with_api_key(http, key, cfg.base_url),
+            ),
             (AuthMethod::ChatgptOauth, Credential::Bearer(token)) => {
                 Box::new(openai::OpenAiProvider::with_chatgpt_plan(http, token))
             }
@@ -87,19 +94,26 @@ pub fn build_provider(cfg: ProviderConfig, http: reqwest::Client) -> CueResult<B
             _ => return Err(missing_key("OpenAI")),
         },
         ProviderKind::Gemini => match cfg.credential {
-            Credential::ApiKey(key) => Box::new(gemini::GeminiProvider::new(http, key, cfg.base_url)),
+            Credential::ApiKey(key) => {
+                Box::new(gemini::GeminiProvider::new(http, key, cfg.base_url))
+            }
             _ => return Err(missing_key("Google Gemini")),
         },
         ProviderKind::OpenaiCompatible => {
-            let base = cfg.base_url.filter(|b| !b.trim().is_empty()).ok_or_else(|| {
-                CueError::not_configured("No server URL configured for this connection.")
-                    .with_hint("Set the base URL, e.g. http://localhost:11434/v1 for Ollama.")
-            })?;
+            let base = cfg
+                .base_url
+                .filter(|b| !b.trim().is_empty())
+                .ok_or_else(|| {
+                    CueError::not_configured("No server URL configured for this connection.")
+                        .with_hint("Set the base URL, e.g. http://localhost:11434/v1 for Ollama.")
+                })?;
             let key = match cfg.credential {
                 Credential::ApiKey(k) if !k.is_empty() => Some(k),
                 _ => None,
             };
-            Box::new(openai_compatible::OpenAiCompatibleProvider::new(http, base, key))
+            Box::new(openai_compatible::OpenAiCompatibleProvider::new(
+                http, base, key,
+            ))
         }
         ProviderKind::ClaudeCode => Box::new(claude_code::ClaudeCodeProvider::new(cfg.cli_path)),
     })
@@ -116,7 +130,11 @@ pub fn http_client() -> reqwest::Client {
 }
 
 pub(crate) fn join_url(base: &str, path: &str) -> String {
-    format!("{}/{}", base.trim_end_matches('/'), path.trim_start_matches('/'))
+    format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
 }
 
 /// Read an error body (bounded) for mapping. Never fails.
@@ -124,7 +142,12 @@ pub(crate) async fn error_body(resp: reqwest::Response) -> (u16, Option<String>,
     let status = resp.status().as_u16();
     let req_id = ["request-id", "x-request-id", "x-goog-request-id"]
         .iter()
-        .find_map(|h| resp.headers().get(*h).and_then(|v| v.to_str().ok()).map(str::to_string));
+        .find_map(|h| {
+            resp.headers()
+                .get(*h)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        });
     let body = resp.text().await.unwrap_or_default();
     let body: String = body.chars().take(4000).collect();
     (status, req_id, body)
@@ -159,7 +182,9 @@ pub(crate) fn mentions_context_length(msg: &str) -> bool {
 
 pub(crate) fn send_delta(tx: &EventTx, text: &str) {
     if !text.is_empty() {
-        let _ = tx.send(StreamEvent::Delta { text: text.to_string() });
+        let _ = tx.send(StreamEvent::Delta {
+            text: text.to_string(),
+        });
     }
 }
 

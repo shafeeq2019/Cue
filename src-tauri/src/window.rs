@@ -6,21 +6,24 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Runtime};
 pub const MAIN: &str = "main";
 
 pub fn show<R: Runtime>(app: &AppHandle<R>) {
-    let Some(w) = app.get_webview_window(MAIN) else { return };
-    if let Some(st) = app.try_state::<std::sync::Arc<crate::state::AppState>>() {
-        if let Ok(mut t) = st.shown_at.lock() {
-            *t = Some(std::time::Instant::now());
-        }
+    let Some(w) = app.get_webview_window(MAIN) else {
+        return;
+    };
+    if let Some(st) = app.try_state::<std::sync::Arc<crate::state::AppState>>()
+        && let Ok(mut t) = st.shown_at.lock()
+    {
+        *t = Some(std::time::Instant::now());
     }
     // Place the palette on the monitor that contains the mouse cursor,
     // horizontally centred and in the upper third, like Spotlight/Raycast.
-    if let Ok(cursor) = app.cursor_position() {
-        if let (Ok(Some(mon)), Ok(size)) = (app.monitor_from_point(cursor.x, cursor.y), w.outer_size()) {
-            let area = mon.work_area();
-            let x = area.position.x + (area.size.width as i32 - size.width as i32) / 2;
-            let y = area.position.y + (area.size.height as i32 / 5).max(0);
-            let _ = w.set_position(PhysicalPosition::new(x, y));
-        }
+    if let Ok(cursor) = app.cursor_position()
+        && let (Ok(Some(mon)), Ok(size)) =
+            (app.monitor_from_point(cursor.x, cursor.y), w.outer_size())
+    {
+        let area = mon.work_area();
+        let x = area.position.x + (area.size.width as i32 - size.width as i32) / 2;
+        let y = area.position.y + (area.size.height as i32 / 5).max(0);
+        let _ = w.set_position(PhysicalPosition::new(x, y));
     }
     let _ = w.unminimize();
     let _ = w.show();

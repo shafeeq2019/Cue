@@ -37,7 +37,10 @@ impl SecretStore for MemoryStore {
         Ok(self.0.lock().expect("lock").get(key).cloned())
     }
     fn set(&self, key: &str, value: &str) -> CueResult<()> {
-        self.0.lock().expect("lock").insert(key.into(), value.into());
+        self.0
+            .lock()
+            .expect("lock")
+            .insert(key.into(), value.into());
         Ok(())
     }
     fn delete(&self, key: &str) -> CueResult<()> {
@@ -83,18 +86,26 @@ pub trait RawBackend: Send + Sync {
 
 impl<B: RawBackend> SecretStore for ChunkedStore<B> {
     fn get(&self, key: &str) -> CueResult<Option<String>> {
-        let Some(head) = self.0.raw_get(key)? else { return Ok(None) };
+        let Some(head) = self.0.raw_get(key)? else {
+            return Ok(None);
+        };
         if let Some(v) = head.strip_prefix("v1:") {
             return Ok(Some(v.to_string()));
         }
-        if let Some(n) = head.strip_prefix("v1c:").and_then(|n| n.parse::<usize>().ok()) {
+        if let Some(n) = head
+            .strip_prefix("v1c:")
+            .and_then(|n| n.parse::<usize>().ok())
+        {
             let mut out = String::new();
             for i in 0..n {
                 match self.0.raw_get(&chunk_key(key, i))? {
                     Some(p) => out.push_str(&p),
                     None => {
-                        return Err(CueError::new(ErrorKind::SecretStore, "A stored credential is incomplete.")
-                            .with_hint("Remove and re-add this connection."));
+                        return Err(CueError::new(
+                            ErrorKind::SecretStore,
+                            "A stored credential is incomplete.",
+                        )
+                        .with_hint("Remove and re-add this connection."));
                     }
                 }
             }
@@ -115,7 +126,10 @@ impl<B: RawBackend> SecretStore for ChunkedStore<B> {
 
     fn delete(&self, key: &str) -> CueResult<()> {
         if let Some(head) = self.0.raw_get(key)? {
-            if let Some(n) = head.strip_prefix("v1c:").and_then(|n| n.parse::<usize>().ok()) {
+            if let Some(n) = head
+                .strip_prefix("v1c:")
+                .and_then(|n| n.parse::<usize>().ok())
+            {
                 for i in 0..n {
                     self.0.raw_delete(&chunk_key(key, i))?;
                 }
@@ -144,14 +158,20 @@ mod os {
 
     impl KeyringBackend {
         pub fn new(service: impl Into<String>) -> Self {
-            Self { service: service.into() }
+            Self {
+                service: service.into(),
+            }
         }
 
         /// Whether the platform credential store could be initialised.
         pub fn available() -> CueResult<()> {
-            keyring::Entry::store_status().as_ref().map(|_| ()).map_err(|e| {
-                CueError::from_kind(ErrorKind::SecretStore, "credential store").with_detail(e.to_string())
-            })
+            keyring::Entry::store_status()
+                .as_ref()
+                .map(|_| ())
+                .map_err(|e| {
+                    CueError::from_kind(ErrorKind::SecretStore, "credential store")
+                        .with_detail(e.to_string())
+                })
         }
 
         fn entry(&self, key: &str) -> CueResult<keyring::Entry> {

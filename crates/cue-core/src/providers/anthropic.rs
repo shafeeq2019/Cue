@@ -9,7 +9,10 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::{EventTx, Provider, error_body, join_url, kind_for_status, mentions_context_length, send_cancellable, send_delta};
+use super::{
+    EventTx, Provider, error_body, join_url, kind_for_status, mentions_context_length,
+    send_cancellable, send_delta,
+};
 use crate::error::{CueError, CueResult, ErrorKind};
 use crate::sse::{Flow, drive_sse};
 use crate::types::{ChatOutcome, ChatRequest, ModelInfo, Role, StopReason, StreamEvent, Usage};
@@ -34,7 +37,9 @@ impl AnthropicProvider {
         Self {
             http,
             key,
-            base: base.filter(|b| !b.is_empty()).unwrap_or_else(|| DEFAULT_BASE.into()),
+            base: base
+                .filter(|b| !b.is_empty())
+                .unwrap_or_else(|| DEFAULT_BASE.into()),
             limits: Default::default(),
         }
     }
@@ -47,7 +52,11 @@ impl AnthropicProvider {
     }
 
     fn max_tokens_for(&self, req: &ChatRequest) -> u32 {
-        let model_cap = self.limits.lock().ok().and_then(|m| m.get(&req.model).copied());
+        let model_cap = self
+            .limits
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&req.model).copied());
         match (req.max_output_tokens, model_cap) {
             (Some(m), Some(cap)) => (m as u64).min(cap) as u32,
             (Some(m), None) => m,
@@ -59,7 +68,10 @@ impl AnthropicProvider {
 
 pub(crate) fn map_error(status: u16, req_id: Option<String>, body: &str) -> CueError {
     let parsed: Option<Value> = serde_json::from_str(body).ok();
-    let etype = parsed.as_ref().and_then(|v| v["error"]["type"].as_str()).unwrap_or("");
+    let etype = parsed
+        .as_ref()
+        .and_then(|v| v["error"]["type"].as_str())
+        .unwrap_or("");
     let msg = parsed
         .as_ref()
         .and_then(|v| v["error"]["message"].as_str())
@@ -79,7 +91,9 @@ pub(crate) fn map_error(status: u16, req_id: Option<String>, body: &str) -> CueE
                 ErrorKind::QuotaExceeded
             } else if mentions_context_length(&msg) {
                 ErrorKind::ContextTooLong
-            } else if lower.contains("model") && (lower.contains("not found") || lower.contains("does not exist")) {
+            } else if lower.contains("model")
+                && (lower.contains("not found") || lower.contains("does not exist"))
+            {
                 ErrorKind::ModelNotFound
             } else {
                 ErrorKind::InvalidRequest
@@ -87,7 +101,9 @@ pub(crate) fn map_error(status: u16, req_id: Option<String>, body: &str) -> CueE
         }
         _ => kind_for_status(status),
     };
-    let mut err = CueError::from_kind(kind, NAME).with_detail(msg).with_request_id(req_id);
+    let mut err = CueError::from_kind(kind, NAME)
+        .with_detail(msg)
+        .with_request_id(req_id);
     if status != 0 {
         err = err.with_status(status);
     }
@@ -109,16 +125,24 @@ impl Provider for AnthropicProvider {
         let mut out = Vec::new();
         let mut after: Option<String> = None;
         for _ in 0..20 {
-            let mut rb = self.req(reqwest::Method::GET, "/v1/models").query(&[("limit", "1000")]);
+            let mut rb = self
+                .req(reqwest::Method::GET, "/v1/models")
+                .query(&[("limit", "1000")]);
             if let Some(a) = &after {
                 rb = rb.query(&[("after_id", a.as_str())]);
             }
-            let resp = rb.send().await.map_err(|e| CueError::from_reqwest(&e, NAME))?;
+            let resp = rb
+                .send()
+                .await
+                .map_err(|e| CueError::from_reqwest(&e, NAME))?;
             if !resp.status().is_success() {
                 let (s, id, body) = error_body(resp).await;
                 return Err(map_error(s, id, &body));
             }
-            let v: Value = resp.json().await.map_err(|e| CueError::from_reqwest(&e, NAME))?;
+            let v: Value = resp
+                .json()
+                .await
+                .map_err(|e| CueError::from_reqwest(&e, NAME))?;
             for m in v["data"].as_array().into_iter().flatten() {
                 let Some(id) = m["id"].as_str() else { continue };
                 let max_out = m["max_tokens"].as_u64();
@@ -144,7 +168,12 @@ impl Provider for AnthropicProvider {
         Ok(out)
     }
 
-    async fn chat(&self, req: &ChatRequest, tx: &EventTx, cancel: &CancellationToken) -> CueResult<ChatOutcome> {
+    async fn chat(
+        &self,
+        req: &ChatRequest,
+        tx: &EventTx,
+        cancel: &CancellationToken,
+    ) -> CueResult<ChatOutcome> {
         let messages: Vec<Value> = req
             .messages
             .iter()
@@ -165,7 +194,12 @@ impl Provider for AnthropicProvider {
             body["system"] = json!(sys);
         }
 
-        let resp = send_cancellable(self.req(reqwest::Method::POST, "/v1/messages").json(&body), NAME, cancel).await?;
+        let resp = send_cancellable(
+            self.req(reqwest::Method::POST, "/v1/messages").json(&body),
+            NAME,
+            cancel,
+        )
+        .await?;
         if !resp.status().is_success() {
             let (s, id, body) = error_body(resp).await;
             return Err(map_error(s, id, &body));
@@ -183,11 +217,17 @@ impl Provider for AnthropicProvider {
                 "message_start" => {
                     let msg = &v["message"];
                     if let Some(m) = msg["model"].as_str() {
-                        let _ = tx.send(StreamEvent::Model { model: m.to_string() });
+                        let _ = tx.send(StreamEvent::Model {
+                            model: m.to_string(),
+                        });
                     }
                     usage.input_tokens = msg["usage"]["input_tokens"].as_u64().map(|n| {
-                        n + msg["usage"]["cache_read_input_tokens"].as_u64().unwrap_or(0)
-                            + msg["usage"]["cache_creation_input_tokens"].as_u64().unwrap_or(0)
+                        n + msg["usage"]["cache_read_input_tokens"]
+                            .as_u64()
+                            .unwrap_or(0)
+                            + msg["usage"]["cache_creation_input_tokens"]
+                                .as_u64()
+                                .unwrap_or(0)
                     });
                 }
                 "content_block_delta" => {
@@ -225,7 +265,9 @@ impl Provider for AnthropicProvider {
             return Err(CueError::from_kind(ErrorKind::Network, NAME)
                 .with_detail("The stream ended before the message was complete."));
         }
-        let _ = tx.send(StreamEvent::Usage { usage: usage.clone() });
+        let _ = tx.send(StreamEvent::Usage {
+            usage: usage.clone(),
+        });
         Ok(ChatOutcome { stop, usage })
     }
 }

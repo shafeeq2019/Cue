@@ -28,19 +28,49 @@ enum Severity {
 
 /// (modifiers, key, severity, description) per platform.
 fn known_conflicts() -> Vec<(Modifiers, Code, Severity, &'static str)> {
-    let (a, c, s, m) = (Modifiers::ALT, Modifiers::CONTROL, Modifiers::SHIFT, Modifiers::SUPER);
+    let (a, c, s, m) = (
+        Modifiers::ALT,
+        Modifiers::CONTROL,
+        Modifiers::SHIFT,
+        Modifiers::SUPER,
+    );
     if cfg!(target_os = "macos") {
         vec![
             (m, Code::Space, Severity::Block, "⌘ Space opens Spotlight."),
-            (m | a, Code::Space, Severity::Warn, "⌥⌘ Space opens a Finder search window."),
-            (c, Code::Space, Severity::Warn, "⌃ Space switches the input source on macOS."),
-            (c | m, Code::Space, Severity::Warn, "⌃⌘ Space opens the emoji picker."),
-            (m, Code::Tab, Severity::Block, "⌘ Tab switches applications."),
+            (
+                m | a,
+                Code::Space,
+                Severity::Warn,
+                "⌥⌘ Space opens a Finder search window.",
+            ),
+            (
+                c,
+                Code::Space,
+                Severity::Warn,
+                "⌃ Space switches the input source on macOS.",
+            ),
+            (
+                c | m,
+                Code::Space,
+                Severity::Warn,
+                "⌃⌘ Space opens the emoji picker.",
+            ),
+            (
+                m,
+                Code::Tab,
+                Severity::Block,
+                "⌘ Tab switches applications.",
+            ),
             (m, Code::KeyQ, Severity::Block, "⌘ Q quits applications."),
             (m | s, Code::Digit3, Severity::Block, "Screenshot shortcut."),
             (m | s, Code::Digit4, Severity::Block, "Screenshot shortcut."),
             (m | s, Code::Digit5, Severity::Block, "Screenshot shortcut."),
-            (a, Code::Space, Severity::Warn, "⌥ Space normally types a non-breaking space; Cue will capture it in all apps."),
+            (
+                a,
+                Code::Space,
+                Severity::Warn,
+                "⌥ Space normally types a non-breaking space; Cue will capture it in all apps.",
+            ),
         ]
     } else if cfg!(target_os = "windows") {
         vec![
@@ -48,15 +78,45 @@ fn known_conflicts() -> Vec<(Modifiers, Code, Severity, &'static str)> {
             (a, Code::F4, Severity::Block, "Alt+F4 closes windows."),
             (m, Code::KeyL, Severity::Block, "Win+L locks the computer."),
             (m, Code::KeyD, Severity::Block, "Win+D shows the desktop."),
-            (m, Code::Space, Severity::Block, "Win+Space switches the keyboard layout."),
-            (c | s, Code::Escape, Severity::Block, "Ctrl+Shift+Esc opens Task Manager."),
-            (a, Code::Space, Severity::Warn, "Alt+Space opens the window menu and is used by PowerToys Run."),
-            (c, Code::Space, Severity::Warn, "Ctrl+Space toggles the input method for Chinese/Japanese/Korean keyboards."),
+            (
+                m,
+                Code::Space,
+                Severity::Block,
+                "Win+Space switches the keyboard layout.",
+            ),
+            (
+                c | s,
+                Code::Escape,
+                Severity::Block,
+                "Ctrl+Shift+Esc opens Task Manager.",
+            ),
+            (
+                a,
+                Code::Space,
+                Severity::Warn,
+                "Alt+Space opens the window menu and is used by PowerToys Run.",
+            ),
+            (
+                c,
+                Code::Space,
+                Severity::Warn,
+                "Ctrl+Space toggles the input method for Chinese/Japanese/Korean keyboards.",
+            ),
         ]
     } else {
         vec![
-            (c, Code::Space, Severity::Warn, "Ctrl+Space may toggle the input method (IBus/Fcitx)."),
-            (m, Code::Space, Severity::Warn, "Super+Space may switch keyboard layouts."),
+            (
+                c,
+                Code::Space,
+                Severity::Warn,
+                "Ctrl+Space may toggle the input method (IBus/Fcitx).",
+            ),
+            (
+                m,
+                Code::Space,
+                Severity::Warn,
+                "Super+Space may switch keyboard layouts.",
+            ),
             (a, Code::Tab, Severity::Block, "Alt+Tab switches windows."),
         ]
     }
@@ -67,12 +127,33 @@ pub fn check(accelerator: &str) -> HotkeyCheck {
     let parsed: Result<Shortcut, _> = accelerator.parse();
     let sc = match parsed {
         Ok(s) => s,
-        Err(e) => return HotkeyCheck { ok: false, error: Some(format!("Not a valid shortcut: {e}")), ..Default::default() },
+        Err(e) => {
+            return HotkeyCheck {
+                ok: false,
+                error: Some(format!("Not a valid shortcut: {e}")),
+                ..Default::default()
+            };
+        }
     };
-    let mut out = HotkeyCheck { ok: true, normalized: Some(display(accelerator)), ..Default::default() };
+    let mut out = HotkeyCheck {
+        ok: true,
+        normalized: Some(display(accelerator)),
+        ..Default::default()
+    };
     let function_key = matches!(
         sc.key,
-        Code::F1 | Code::F2 | Code::F3 | Code::F4 | Code::F5 | Code::F6 | Code::F7 | Code::F8 | Code::F9 | Code::F10 | Code::F11 | Code::F12
+        Code::F1
+            | Code::F2
+            | Code::F3
+            | Code::F4
+            | Code::F5
+            | Code::F6
+            | Code::F7
+            | Code::F8
+            | Code::F9
+            | Code::F10
+            | Code::F11
+            | Code::F12
     );
     if sc.mods.is_empty() && !function_key {
         out.ok = false;
@@ -98,10 +179,28 @@ pub fn display(accelerator: &str) -> String {
     accelerator
         .split('+')
         .map(|p| match p.trim().to_ascii_lowercase().as_str() {
-            "alt" | "option" => if cfg!(target_os = "macos") { "Option".into() } else { "Alt".into() },
+            "alt" | "option" => {
+                if cfg!(target_os = "macos") {
+                    "Option".into()
+                } else {
+                    "Alt".into()
+                }
+            }
             "control" | "ctrl" => "Ctrl".into(),
-            "super" | "cmd" | "command" | "meta" => if cfg!(target_os = "macos") { "Cmd".into() } else { "Win".into() },
-            "commandorcontrol" | "cmdorctrl" => if cfg!(target_os = "macos") { "Cmd".into() } else { "Ctrl".into() },
+            "super" | "cmd" | "command" | "meta" => {
+                if cfg!(target_os = "macos") {
+                    "Cmd".into()
+                } else {
+                    "Win".into()
+                }
+            }
+            "commandorcontrol" | "cmdorctrl" => {
+                if cfg!(target_os = "macos") {
+                    "Cmd".into()
+                } else {
+                    "Ctrl".into()
+                }
+            }
             _ => p.trim().to_string(),
         })
         .collect::<Vec<_>>()
@@ -148,9 +247,6 @@ mod tests {
         if cfg!(target_os = "macos") {
             assert!(!check("Super+Space").ok);
             assert!(!check("Alt+Space").warnings.is_empty());
-        } else if cfg!(target_os = "windows") {
-            assert!(!check("Alt+Tab").ok);
-            assert!(!check("Control+Space").warnings.is_empty());
         } else {
             assert!(!check("Alt+Tab").ok);
             assert!(!check("Control+Space").warnings.is_empty());

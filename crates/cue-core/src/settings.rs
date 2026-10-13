@@ -157,7 +157,11 @@ impl Default for Settings {
 
 /// Option+Space on macOS, Ctrl+Space elsewhere.
 pub fn default_hotkey() -> &'static str {
-    if cfg!(target_os = "macos") { "Alt+Space" } else { "Control+Space" }
+    if cfg!(target_os = "macos") {
+        "Alt+Space"
+    } else {
+        "Control+Space"
+    }
 }
 
 impl Settings {
@@ -175,7 +179,9 @@ impl Settings {
 
     /// Atomic write with owner-only permissions on Unix.
     pub fn save(&self, path: &Path) -> CueResult<()> {
-        let io = |e: std::io::Error| CueError::new(ErrorKind::Unknown, "Could not save settings.").with_detail(e.to_string());
+        let io = |e: std::io::Error| {
+            CueError::new(ErrorKind::Unknown, "Could not save settings.").with_detail(e.to_string())
+        };
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(io)?;
         }
@@ -201,7 +207,10 @@ impl Settings {
     }
 
     pub fn available_models(&self) -> impl Iterator<Item = (&Connection, &ModelInfo)> {
-        self.connections.iter().filter(|c| c.enabled).flat_map(|c| c.models.iter().map(move |m| (c, m)))
+        self.connections
+            .iter()
+            .filter(|c| c.enabled)
+            .flat_map(|c| c.models.iter().map(move |m| (c, m)))
     }
 
     /// The model to use when nothing else is selected.
@@ -209,9 +218,10 @@ impl Settings {
         if let Some(d) = self.default_model.as_ref().filter(|d| self.is_available(d)) {
             return Some(d.clone());
         }
-        self.available_models()
-            .next()
-            .map(|(c, m)| ModelRef { connection_id: c.id.clone(), model_id: m.id.clone() })
+        self.available_models().next().map(|(c, m)| ModelRef {
+            connection_id: c.id.clone(),
+            model_id: m.id.clone(),
+        })
     }
 
     /// Resolve a task mode to a model the user actually has. Uses the user's
@@ -223,8 +233,26 @@ impl Settings {
             return Some(r.clone());
         }
         let prefs: &[&str] = match mode {
-            Mode::Fast => &["haiku", "flash-lite", "flash", "mini", "nano", "small", "8b"],
-            Mode::Reasoning => &["opus", "fable", "o3", "o4", "-pro", "reasoning", "thinking", "r1", "gpt-5"],
+            Mode::Fast => &[
+                "haiku",
+                "flash-lite",
+                "flash",
+                "mini",
+                "nano",
+                "small",
+                "8b",
+            ],
+            Mode::Reasoning => &[
+                "opus",
+                "fable",
+                "o3",
+                "o4",
+                "-pro",
+                "reasoning",
+                "thinking",
+                "r1",
+                "gpt-5",
+            ],
             Mode::Writing => &["sonnet", "gpt-4.1", "gpt-5", "pro", "large", "opus"],
         };
         let default = self.effective_default();
@@ -234,8 +262,14 @@ impl Settings {
             candidates.sort_by_key(|(c, _)| c.id != d.connection_id);
         }
         for p in prefs {
-            if let Some((c, m)) = candidates.iter().find(|(_, m)| m.id.to_ascii_lowercase().contains(p)) {
-                return Some(ModelRef { connection_id: c.id.clone(), model_id: m.id.clone() });
+            if let Some((c, m)) = candidates
+                .iter()
+                .find(|(_, m)| m.id.to_ascii_lowercase().contains(p))
+            {
+                return Some(ModelRef {
+                    connection_id: c.id.clone(),
+                    model_id: m.id.clone(),
+                });
             }
         }
         None
@@ -273,7 +307,12 @@ mod tests {
             oauth_client_id: None,
             models: models
                 .iter()
-                .map(|m| ModelInfo { id: (*m).into(), display_name: (*m).into(), context_window: None, max_output_tokens: None })
+                .map(|m| ModelInfo {
+                    id: (*m).into(),
+                    display_name: (*m).into(),
+                    context_window: None,
+                    max_output_tokens: None,
+                })
                 .collect(),
             status: None,
             has_secret: true,
@@ -284,21 +323,47 @@ mod tests {
     fn modes_only_use_available_models() {
         let mut s = Settings::default();
         assert_eq!(s.resolve_mode(Mode::Fast), None);
-        s.connections.push(conn("a", ProviderKind::Anthropic, &["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]));
-        s.connections.push(conn("g", ProviderKind::Gemini, &["gemini-2.5-flash"]));
-        assert_eq!(s.resolve_mode(Mode::Fast).unwrap().model_id, "claude-haiku-5-5");
-        assert_eq!(s.resolve_mode(Mode::Reasoning).unwrap().model_id, "claude-opus-5-5");
-        assert_eq!(s.resolve_mode(Mode::Writing).unwrap().model_id, "claude-sonnet-5-5");
+        s.connections.push(conn(
+            "a",
+            ProviderKind::Anthropic,
+            &["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
+        ));
+        s.connections
+            .push(conn("g", ProviderKind::Gemini, &["gemini-2.5-flash"]));
+        assert_eq!(
+            s.resolve_mode(Mode::Fast).unwrap().model_id,
+            "claude-haiku-5-5"
+        );
+        assert_eq!(
+            s.resolve_mode(Mode::Reasoning).unwrap().model_id,
+            "claude-opus-5-5"
+        );
+        assert_eq!(
+            s.resolve_mode(Mode::Writing).unwrap().model_id,
+            "claude-sonnet-5-5"
+        );
 
         // Explicit choice wins while available…
-        s.modes.fast = Some(ModelRef { connection_id: "g".into(), model_id: "gemini-2.5-flash".into() });
+        s.modes.fast = Some(ModelRef {
+            connection_id: "g".into(),
+            model_id: "gemini-2.5-flash".into(),
+        });
         assert_eq!(s.resolve_mode(Mode::Fast).unwrap().connection_id, "g");
         // …and is ignored once the connection is disabled.
         s.connections[1].enabled = false;
-        assert_eq!(s.resolve_mode(Mode::Fast).unwrap().model_id, "claude-haiku-5-5");
+        assert_eq!(
+            s.resolve_mode(Mode::Fast).unwrap().model_id,
+            "claude-haiku-5-5"
+        );
         // Explicit choice of a model that vanished from the list is ignored.
-        s.modes.reasoning = Some(ModelRef { connection_id: "a".into(), model_id: "gone".into() });
-        assert_eq!(s.resolve_mode(Mode::Reasoning).unwrap().model_id, "claude-opus-5-5");
+        s.modes.reasoning = Some(ModelRef {
+            connection_id: "a".into(),
+            model_id: "gone".into(),
+        });
+        assert_eq!(
+            s.resolve_mode(Mode::Reasoning).unwrap().model_id,
+            "claude-opus-5-5"
+        );
     }
 
     #[test]
@@ -306,15 +371,22 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cue-settings-{}", uuid::Uuid::new_v4()));
         let path = dir.join("settings.json");
         let mut s = Settings::default();
-        s.connections.push(conn("a", ProviderKind::Openai, &["gpt-4.1"]));
+        s.connections
+            .push(conn("a", ProviderKind::Openai, &["gpt-4.1"]));
         s.save(&path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(!text.contains("\"api_key\":") && !text.contains("token\":"), "no secret fields in settings");
+        assert!(
+            !text.contains("\"api_key\":") && !text.contains("token\":"),
+            "no secret fields in settings"
+        );
         assert_eq!(Settings::load(&path).unwrap(), s);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
         let _ = std::fs::remove_dir_all(dir);
     }
