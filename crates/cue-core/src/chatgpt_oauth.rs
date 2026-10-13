@@ -770,9 +770,16 @@ mod tests {
 
     #[tokio::test]
     async fn tampered_signature_is_rejected() {
-        let mut tok = sign(claims("nn", "oaiapp_123"));
-        tok.pop();
-        tok.push(if tok.ends_with('A') { 'B' } else { 'A' });
+        // Flip a character in the middle of the signature segment. (The last
+        // base64url character partly encodes padding bits, so changing it
+        // does not always change the decoded signature.)
+        let tok = sign(claims("nn", "oaiapp_123"));
+        let sig_start = tok.rfind('.').unwrap() + 1;
+        let i = sig_start + (tok.len() - sig_start) / 2;
+        let c = tok.as_bytes()[i];
+        let mut tok = tok.into_bytes();
+        tok[i] = if c == b'A' { b'B' } else { b'A' };
+        let tok = String::from_utf8(tok).unwrap();
         let (_s, ep) = server(&tok, SCOPES).await;
         let a = ChatGptAuth {
             http: reqwest::Client::new(),
